@@ -1,5 +1,4 @@
 #include <octomap_server/OctomapServerObjectProbability.h>
-#include <octomap_server/OctomapServer.h>
 
 using namespace octomap;
 using octomap_msgs::Octomap;
@@ -233,16 +232,10 @@ bool OctomapServerObjectProbability::openFile(const std::string& filename){
 
 }
 
-void OctomapServerObjectProbability::insertCallback(const sensor_msgs::PointCloud2::ConstPtr& cloud, const sensor_msgs::Image::ConstPtr& imgmsg)
+void OctomapServerObjectProbability::insertCallback(
+  const sensor_msgs::PointCloud2::ConstPtr& cloud,
+  const sensor_msgs::Image::ConstPtr& imgmsg)
 {
-  ros::WallTime startTime = ros::WallTime::now();
-
-  //
-  // ground filtering in base frame
-  //
-  PCLPointCloud pc; // input cloud for filtering and ground-detection
-  pcl::fromROSMsg(*cloud, pc);
-
   tf::StampedTransform sensorToWorldTf;
   try {
     m_tfListener.lookupTransform(m_worldFrameId, cloud->header.frame_id, cloud->header.stamp, sensorToWorldTf);
@@ -251,57 +244,34 @@ void OctomapServerObjectProbability::insertCallback(const sensor_msgs::PointClou
     return;
   }
 
-  Eigen::Matrix4f sensorToWorld;
-  pcl_ros::transformAsMatrix(sensorToWorldTf, sensorToWorld);
-
-
-  // set up filter for height range, also removes NANs:
-  pcl::PassThrough<pcl::PointXYZ> pass_x;
-  pass_x.setFilterFieldName("x");
-  pass_x.setFilterLimits(m_pointcloudMinX, m_pointcloudMaxX);
-  pcl::PassThrough<pcl::PointXYZ> pass_y;
-  pass_y.setFilterFieldName("y");
-  pass_y.setFilterLimits(m_pointcloudMinY, m_pointcloudMaxY);
-  pcl::PassThrough<pcl::PointXYZ> pass_z;
-  pass_z.setFilterFieldName("z");
-  pass_z.setFilterLimits(m_pointcloudMinZ, m_pointcloudMaxZ);
-
-  PCLPointCloud pc_ground; // segmented ground plane
-  PCLPointCloud pc_nonground; // everything else
-
-
-  // directly transform to map frame:
-  pcl::transformPointCloud(pc, pc, sensorToWorld);
-
-  // just filter height range:
-  pass_x.setInputCloud(pc.makeShared());
-  pass_x.filter(pc);
-  pass_y.setInputCloud(pc.makeShared());
-  pass_y.filter(pc);
-  pass_z.setInputCloud(pc.makeShared());
-  pass_z.filter(pc);
-
-  pc_nonground = pc;
-  // pc_nonground is empty without ground segmentation
-  pc_ground.header = pc.header;
-  pc_nonground.header = pc.header;
-
-
-  insertScan(sensorToWorldTf.getOrigin(), pc_ground, pc_nonground);
-
-  double total_elapsed = (ros::WallTime::now() - startTime).toSec();
-  ROS_DEBUG("Pointcloud insertion in OctomapServerObjectProbability done (%zu+%zu pts (ground/nonground), %f sec)", pc_ground.size(), pc_nonground.size(), total_elapsed);
+  insertScan(sensorToWorldTf.getOrigin(), cloud, imgmsg);
 
   publishAll(cloud->header.stamp);
 }
 
-void OctomapServerObjectProbability::insertScan(const tf::Point& sensorOriginTf, const PCLPointCloud& ground, const PCLPointCloud& nonground){
-  point3d sensorOrigin = pointTfToOctomap(sensorOriginTf);
+void OctomapServerObjectProbability::insertScan(
+  const tf::Point& sensorOriginTf,
+  const sensor_msgs::PointCloud2::ConstPtr& cloud,
+  const sensor_msgs::Image::ConstPtr& imgmsg)
+{
+  octomap::point3d sensorOrigin = pointTfToOctomap(sensorOriginTf);
 
-  if (!m_octree->coordToKeyChecked(sensorOrigin, m_updateBBXMin)
-    || !m_octree->coordToKeyChecked(sensorOrigin, m_updateBBXMax))
+  if (!(cloud->height == imgmsg->height && cloud->width == imgmsg->width))
   {
-    ROS_ERROR_STREAM("Could not generate Key for origin "<<sensorOrigin);
+    ROS_ERROR("Input point cloud and image has different size. cloud: (%d, %d), image: (%d, %d)",
+              cloud->width, cloud->height, imgmsg->width, imgmsg->height);
+    return;
+  }
+
+  PCLPointCloud pc;
+  pcl::fromROSMsg(*cloud, pc);
+
+  cv::Mat proba_img = cv_bridge::toCvCopy(imgmsg, imgmsg->encoding)->image;
+
+  if (!m_octree->coordToKeyChecked(sensorOrigin, m_updateBBXMin) ||
+      !m_octree->coordToKeyChecked(sensorOrigin, m_updateBBXMax))
+  {
+    ROS_ERROR_STREAM("Could not generate Key for origin " << sensorOrigin);
   }
 
 #ifdef COLOR_OCTOMAP_SERVER
@@ -310,55 +280,28 @@ void OctomapServerObjectProbability::insertScan(const tf::Point& sensorOriginTf,
 
   // instead of direct scan insertion, compute update to filter ground:
   KeySet free_cells, occupied_cells;
-  // insert ground points only as free:
-  for (PCLPointCloud::const_iterator it = ground.begin(); it != ground.end(); ++it){
-    point3d point(it->x, it->y, it->z);
-    // maxrange check
-    if ((m_maxRange > 0.0) && ((point - sensorOrigin).norm() > m_maxRange) ) {
-      point = sensorOrigin + (point - sensorOrigin).normalized() * m_maxRange;
-    }
-
-    // only clear space (ground points)
-    if (m_octree->computeRayKeys(sensorOrigin, point, m_keyRay)){
-      free_cells.insert(m_keyRay.begin(), m_keyRay.end());
-    }
-
-    octomap::OcTreeKey endKey;
-    if (m_octree->coordToKeyChecked(point, endKey)){
-      updateMinKey(endKey, m_updateBBXMin);
-      updateMaxKey(endKey, m_updateBBXMax);
-    } else{
-      ROS_ERROR_STREAM("Could not generate Key for endpoint "<<point);
-    }
-  }
 
   // all other points: free on ray, occupied on endpoint:
-  for (PCLPointCloud::const_iterator it = nonground.begin(); it != nonground.end(); ++it){
-    point3d point(it->x, it->y, it->z);
+  for (size_t index = 0; index < pc.points.size(); index++) {
+    int width_index = index % cloud->width;
+    int height_index = index / cloud->width;
+    octomap::point3d point(pc.points[index].x, pc.points[index].y, pc.points[index].z);
+    float object_probability = proba_img.at<float>(height_index, width_index);
     // maxrange check
-    if ((m_maxRange < 0.0) || ((point - sensorOrigin).norm() <= m_maxRange) ) {
-
+    if ((m_maxRange < 0.0) || ((point - sensorOrigin).norm() <= m_maxRange)) {
       // free cells
-      if (m_octree->computeRayKeys(sensorOrigin, point, m_keyRay)){
+      if (m_octree->computeRayKeys(sensorOrigin, point, m_keyRay)) {
         free_cells.insert(m_keyRay.begin(), m_keyRay.end());
       }
       // occupied endpoint
       OcTreeKey key;
-      if (m_octree->coordToKeyChecked(point, key)){
-        occupied_cells.insert(key);
+      if (m_octree->coordToKeyChecked(point, key)) {
+        m_octree->updateNode(key, object_probability);
 
         updateMinKey(key, m_updateBBXMin);
         updateMaxKey(key, m_updateBBXMax);
-
-#ifdef COLOR_OCTOMAP_SERVER // NB: Only read and interpret color if it's an occupied node
-        const int rgb = *reinterpret_cast<const int*>(&(it->rgb)); // TODO: there are other ways to encode color than this one
-        colors[0] = ((rgb >> 16) & 0xff);
-        colors[1] = ((rgb >> 8) & 0xff);
-        colors[2] = (rgb & 0xff);
-        m_octree->averageNodeColor(it->x, it->y, it->z, colors[0], colors[1], colors[2]);
-#endif
       }
-    } else {// ray longer than maxrange:;
+    } else {  // ray longer than maxrange:
       point3d new_end = sensorOrigin + (point - sensorOrigin).normalized() * m_maxRange;
       if (m_octree->computeRayKeys(sensorOrigin, new_end, m_keyRay)){
         free_cells.insert(m_keyRay.begin(), m_keyRay.end());
@@ -368,59 +311,42 @@ void OctomapServerObjectProbability::insertScan(const tf::Point& sensorOriginTf,
           updateMinKey(endKey, m_updateBBXMin);
           updateMaxKey(endKey, m_updateBBXMax);
         } else{
-          ROS_ERROR_STREAM("Could not generate Key for endpoint "<<new_end);
+          ROS_ERROR_STREAM("Could not generate Key for endpoint "<< new_end);
         }
-
-
       }
     }
   }
 
   // mark free cells only if not seen occupied in this cloud
-  for(KeySet::iterator it = free_cells.begin(), end=free_cells.end(); it!= end; ++it){
-    if (occupied_cells.find(*it) == occupied_cells.end()){
-      m_octree->updateNode(*it, false);
+  for (KeySet::iterator it = free_cells.begin(), end=free_cells.end(); it!= end; ++it) {
+    if (occupied_cells.find(*it) == occupied_cells.end()) {
+      m_octree->updateNode(*it, (float)0.5);  // set object probability as 0.5
     }
-  }
-
-  // now mark all occupied cells:
-  for (KeySet::iterator it = occupied_cells.begin(), end=occupied_cells.end(); it!= end; it++) {
-    m_octree->updateNode(*it, true);
   }
 
   // TODO: eval lazy+updateInner vs. proper insertion
   // non-lazy by default (updateInnerOccupancy() too slow for large maps)
   //m_octree->updateInnerOccupancy();
   octomap::point3d minPt, maxPt;
-  ROS_DEBUG_STREAM("Bounding box keys (before): " << m_updateBBXMin[0] << " " <<m_updateBBXMin[1] << " " << m_updateBBXMin[2] << " / " <<m_updateBBXMax[0] << " "<<m_updateBBXMax[1] << " "<< m_updateBBXMax[2]);
-
-  // TODO: snap max / min keys to larger voxels by m_maxTreeDepth
-//   if (m_maxTreeDepth < 16)
-//   {
-//      OcTreeKey tmpMin = getIndexKey(m_updateBBXMin, m_maxTreeDepth); // this should give us the first key at depth m_maxTreeDepth that is smaller or equal to m_updateBBXMin (i.e. lower left in 2D grid coordinates)
-//      OcTreeKey tmpMax = getIndexKey(m_updateBBXMax, m_maxTreeDepth); // see above, now add something to find upper right
-//      tmpMax[0]+= m_octree->getNodeSize( m_maxTreeDepth ) - 1;
-//      tmpMax[1]+= m_octree->getNodeSize( m_maxTreeDepth ) - 1;
-//      tmpMax[2]+= m_octree->getNodeSize( m_maxTreeDepth ) - 1;
-//      m_updateBBXMin = tmpMin;
-//      m_updateBBXMax = tmpMax;
-//   }
+  ROS_DEBUG_STREAM("Bounding box keys (before): " << m_updateBBXMin[0] << " " <<m_updateBBXMin[1] << " " <<
+                   m_updateBBXMin[2] << " / " <<m_updateBBXMax[0] << " "<<m_updateBBXMax[1] << " "<< m_updateBBXMax[2]);
 
   // TODO: we could also limit the bbx to be within the map bounds here (see publishing check)
   minPt = m_octree->keyToCoord(m_updateBBXMin);
   maxPt = m_octree->keyToCoord(m_updateBBXMax);
   ROS_DEBUG_STREAM("Updated area bounding box: "<< minPt << " - "<<maxPt);
-  ROS_DEBUG_STREAM("Bounding box keys (after): " << m_updateBBXMin[0] << " " <<m_updateBBXMin[1] << " " << m_updateBBXMin[2] << " / " <<m_updateBBXMax[0] << " "<<m_updateBBXMax[1] << " "<< m_updateBBXMax[2]);
+  ROS_DEBUG_STREAM("Bounding box keys (after): " << m_updateBBXMin[0] << " " <<m_updateBBXMin[1] << " " <<
+                   m_updateBBXMin[2] << " / " <<m_updateBBXMax[0] << " "<<m_updateBBXMax[1] << " "<< m_updateBBXMax[2]);
 
   if (m_compressMap)
+  {
     m_octree->prune();
+  }
+
+}  // OctomapServerObjectProbability::insertScan
 
 
-}
-
-
-
-void OctomapServerObjectProbability::publishAll(const ros::Time& rostime){
+void OctomapServerObjectProbability::publishAll(const ros::Time& rostime) {
   ros::WallTime startTime = ros::WallTime::now();
   size_t octomapSize = m_octree->size();
   // TODO: estimate num occ. voxels for size of arrays (reserve)
@@ -636,8 +562,7 @@ void OctomapServerObjectProbability::publishAll(const ros::Time& rostime){
   double total_elapsed = (ros::WallTime::now() - startTime).toSec();
   ROS_DEBUG("Map publishing in OctomapServerObjectProbability took %f sec", total_elapsed);
 
-}
-
+}  // OctomapServerObjectProbability::publishAll
 
 bool OctomapServerObjectProbability::octomapBinarySrv(OctomapSrv::Request  &req,
                                     OctomapSrv::Response &res)
@@ -666,7 +591,7 @@ bool OctomapServerObjectProbability::octomapFullSrv(OctomapSrv::Request  &req,
     return false;
 
   return true;
-}
+}  // OctomapServerObjectProbability::octomapBinarySrv
 
 bool OctomapServerObjectProbability::clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& resp){
   point3d min = pointMsgToOctomap(req.min);
@@ -677,7 +602,7 @@ bool OctomapServerObjectProbability::clearBBXSrv(BBXSrv::Request& req, BBXSrv::R
       end=m_octree->end_leafs_bbx(); it!= end; ++it){
 
     it->setLogOdds(octomap::logodds(thresMin));
-    //			m_octree->updateNode(it.getKey(), -6.0f);
+    // m_octree->updateNode(it.getKey(), -6.0f);
   }
   // TODO: eval which is faster (setLogOdds+updateInner or updateNode)
   m_octree->updateInnerOccupancy();
@@ -685,7 +610,7 @@ bool OctomapServerObjectProbability::clearBBXSrv(BBXSrv::Request& req, BBXSrv::R
   publishAll(ros::Time::now());
 
   return true;
-}
+}  // OctomapServerObjectProbability::octomapFullSrv
 
 bool OctomapServerObjectProbability::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty::Response& resp) {
   visualization_msgs::MarkerArray occupiedNodesVis;
@@ -731,7 +656,8 @@ bool OctomapServerObjectProbability::resetSrv(std_srvs::Empty::Request& req, std
   m_fmarkerPub.publish(freeNodesVis);
 
   return true;
-}
+}  // OctomapServerObjectProbability::resetSrv
+
 
 void OctomapServerObjectProbability::publishBinaryOctoMap(const ros::Time& rostime) const{
 
@@ -743,7 +669,8 @@ void OctomapServerObjectProbability::publishBinaryOctoMap(const ros::Time& rosti
     m_binaryMapPub.publish(map);
   else
     ROS_ERROR("Error serializing OctoMap");
-}
+}  // OctomapServerObjectProbability::publishBinaryOctoMap
+
 
 void OctomapServerObjectProbability::publishFullOctoMap(const ros::Time& rostime) const{
 
@@ -756,7 +683,7 @@ void OctomapServerObjectProbability::publishFullOctoMap(const ros::Time& rostime
   else
     ROS_ERROR("Error serializing OctoMap");
 
-}
+}  // OctomapServerObjectProbability::publishBinaryOctoMap
 
 
 void OctomapServerObjectProbability::handlePreNodeTraversal(const ros::Time& rostime){
@@ -853,57 +780,59 @@ void OctomapServerObjectProbability::handlePreNodeTraversal(const ros::Time& ros
        // test for max idx:
        uint max_idx = m_gridmap.info.width*mapUpdateBBXMaxY + mapUpdateBBXMaxX;
        if (max_idx  >= m_gridmap.data.size())
-         ROS_ERROR("BBX index not valid: %d (max index %zu for size %d x %d) update-BBX is: [%zu %zu]-[%zu %zu]", max_idx, m_gridmap.data.size(), m_gridmap.info.width, m_gridmap.info.height, mapUpdateBBXMinX, mapUpdateBBXMinY, mapUpdateBBXMaxX, mapUpdateBBXMaxY);
+         ROS_ERROR("BBX index not valid: %d (max index %zu for size %d x %d) update-BBX is: [%zu %zu]-[%zu %zu]",
+                   max_idx, m_gridmap.data.size(), m_gridmap.info.width, m_gridmap.info.height, mapUpdateBBXMinX, mapUpdateBBXMinY, mapUpdateBBXMaxX, mapUpdateBBXMaxY);
 
        // reset proj. 2D map in bounding box:
        for (unsigned int j = mapUpdateBBXMinY; j <= mapUpdateBBXMaxY; ++j){
           std::fill_n(m_gridmap.data.begin() + m_gridmap.info.width*j+mapUpdateBBXMinX,
                       numCols, -1);
        }
-
     }
-
-
-
   }
+}  // OctomapServerObjectProbability::handlePreNodeTraversal
 
-}
 
-void OctomapServerObjectProbability::handlePostNodeTraversal(const ros::Time& rostime){
+void OctomapServerObjectProbability::handlePostNodeTraversal(const ros::Time& rostime) {
 
   if (m_publish2DMap)
     m_mapPub.publish(m_gridmap);
-}
+}  // OctomapServerObjectProbability::handlePostNodeTraversal
 
-void OctomapServerObjectProbability::handleOccupiedNode(const OcTreeT::iterator& it){
+
+void OctomapServerObjectProbability::handleOccupiedNode(const OcTreeT::iterator& it) {
 
   if (m_publish2DMap && m_projectCompleteMap){
     update2DMap(it, true);
   }
-}
+}  // OctomapServerObjectProbability::handleOccupiedNode
 
-void OctomapServerObjectProbability::handleFreeNode(const OcTreeT::iterator& it){
+
+void OctomapServerObjectProbability::handleFreeNode(const OcTreeT::iterator& it) {
 
   if (m_publish2DMap && m_projectCompleteMap){
     update2DMap(it, false);
   }
-}
+}  // OctomapServerObjectProbability::handleFreeNode
 
-void OctomapServerObjectProbability::handleOccupiedNodeInBBX(const OcTreeT::iterator& it){
+
+void OctomapServerObjectProbability::handleOccupiedNodeInBBX(const OcTreeT::iterator& it) {
 
   if (m_publish2DMap && !m_projectCompleteMap){
     update2DMap(it, true);
   }
-}
+}  // OctomapServerObjectProbability::handleOccupiedNodeInBBX
 
-void OctomapServerObjectProbability::handleFreeNodeInBBX(const OcTreeT::iterator& it){
+
+void OctomapServerObjectProbability::handleFreeNodeInBBX(const OcTreeT::iterator& it) {
 
   if (m_publish2DMap && !m_projectCompleteMap){
     update2DMap(it, false);
   }
-}
+}  // OctomapServerObjectProbability::handleFreeNodeInBBX
 
-void OctomapServerObjectProbability::update2DMap(const OcTreeT::iterator& it, bool occupied){
+
+void OctomapServerObjectProbability::update2DMap(const OcTreeT::iterator& it, bool occupied) {
 
   // update 2D map (occupied always overrides):
 
@@ -935,7 +864,6 @@ void OctomapServerObjectProbability::update2DMap(const OcTreeT::iterator& it, bo
 }
 
 
-
 bool OctomapServerObjectProbability::isSpeckleNode(const OcTreeKey&nKey) const {
   OcTreeKey key;
   bool neighborFound = false;
@@ -956,6 +884,7 @@ bool OctomapServerObjectProbability::isSpeckleNode(const OcTreeKey&nKey) const {
   return neighborFound;
 }
 
+
 void OctomapServerObjectProbability::reconfigureCallback(octomap_server::OctomapServerConfig& config, uint32_t level){
   if (m_maxTreeDepth != unsigned(config.max_depth))
     m_maxTreeDepth = unsigned(config.max_depth);
@@ -972,44 +901,44 @@ void OctomapServerObjectProbability::reconfigureCallback(octomap_server::Octomap
     // Parameters with a namespace require an special treatment at the beginning, as dynamic reconfigure
     // will overwrite them because the server is not able to match parameters' names.
     if (m_initConfig){
-		// If parameters do not have the default value, dynamic reconfigure server should be updated.
-		if(!is_equal(m_groundFilterDistance, 0.04))
-          config.ground_filter_distance = m_groundFilterDistance;
-		if(!is_equal(m_groundFilterAngle, 0.15))
-          config.ground_filter_angle = m_groundFilterAngle;
-	    if(!is_equal( m_groundFilterPlaneDistance, 0.07))
-          config.ground_filter_plane_distance = m_groundFilterPlaneDistance;
-        if(!is_equal(m_maxRange, -1.0))
-          config.sensor_model_max_range = m_maxRange;
-        if(!is_equal(m_octree->getProbHit(), 0.7))
-          config.sensor_model_hit = m_octree->getProbHit();
-	    if(!is_equal(m_octree->getProbMiss(), 0.4))
-          config.sensor_model_miss = m_octree->getProbMiss();
-		if(!is_equal(m_octree->getClampingThresMin(), 0.12))
-          config.sensor_model_min = m_octree->getClampingThresMin();
-		if(!is_equal(m_octree->getClampingThresMax(), 0.97))
-          config.sensor_model_max = m_octree->getClampingThresMax();
-        m_initConfig = false;
+      // If parameters do not have the default value, dynamic reconfigure server should be updated.
+      if(!is_equal(m_groundFilterDistance, 0.04))
+        config.ground_filter_distance = m_groundFilterDistance;
+      if(!is_equal(m_groundFilterAngle, 0.15))
+        config.ground_filter_angle = m_groundFilterAngle;
+      if(!is_equal( m_groundFilterPlaneDistance, 0.07))
+        config.ground_filter_plane_distance = m_groundFilterPlaneDistance;
+      if(!is_equal(m_maxRange, -1.0))
+        config.sensor_model_max_range = m_maxRange;
+      if(!is_equal(m_octree->getProbHit(), 0.7))
+        config.sensor_model_hit = m_octree->getProbHit();
+      if(!is_equal(m_octree->getProbMiss(), 0.4))
+        config.sensor_model_miss = m_octree->getProbMiss();
+      if(!is_equal(m_octree->getClampingThresMin(), 0.12))
+        config.sensor_model_min = m_octree->getClampingThresMin();
+      if(!is_equal(m_octree->getClampingThresMax(), 0.97))
+        config.sensor_model_max = m_octree->getClampingThresMax();
+      m_initConfig = false;
 
-	    boost::recursive_mutex::scoped_lock reconf_lock(m_config_mutex);
-        m_reconfigureServer.updateConfig(config);
+      boost::recursive_mutex::scoped_lock reconf_lock(m_config_mutex);
+      m_reconfigureServer.updateConfig(config);
     }
     else{
-	  m_groundFilterDistance      = config.ground_filter_distance;
+      m_groundFilterDistance      = config.ground_filter_distance;
       m_groundFilterAngle         = config.ground_filter_angle;
       m_groundFilterPlaneDistance = config.ground_filter_plane_distance;
       m_maxRange                  = config.sensor_model_max_range;
       m_octree->setClampingThresMin(config.sensor_model_min);
       m_octree->setClampingThresMax(config.sensor_model_max);
 
-     // Checking values that might create unexpected behaviors.
+      // Checking values that might create unexpected behaviors.
       if (is_equal(config.sensor_model_hit, 1.0))
-		config.sensor_model_hit -= 1.0e-6;
+        config.sensor_model_hit -= 1.0e-6;
       m_octree->setProbHit(config.sensor_model_hit);
-	  if (is_equal(config.sensor_model_miss, 0.0))
-		config.sensor_model_miss += 1.0e-6;
+      if (is_equal(config.sensor_model_miss, 0.0))
+        config.sensor_model_miss += 1.0e-6;
       m_octree->setProbMiss(config.sensor_model_miss);
-	}
+    }
   }
   publishAll();
 }
@@ -1102,8 +1031,7 @@ std_msgs::ColorRGBA OctomapServerObjectProbability::heightMapColor(double h) {
   }
 
   return color;
-}
-}
+}  // OctomapServerObjectProbability::heightMapColor
 
 
-
+}  // namespace octomap_server

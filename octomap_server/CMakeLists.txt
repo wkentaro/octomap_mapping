@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 project(octomap_server)
 
 set(PACKAGE_DEPENDENCIES
+  cv_bridge
   roscpp
   visualization_msgs
   sensor_msgs
@@ -21,6 +22,8 @@ find_package(catkin REQUIRED COMPONENTS ${PACKAGE_DEPENDENCIES})
 
 find_package(PCL REQUIRED QUIET COMPONENTS common sample_consensus io segmentation filters)
 
+find_package(OpenCV REQUIRED)
+
 find_package(octomap REQUIRED)
 add_definitions(-DOCTOMAP_NODEBUGOUT)
 
@@ -29,6 +32,7 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
   ${OCTOMAP_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 
@@ -38,7 +42,7 @@ catkin_package(
   INCLUDE_DIRS include
   LIBRARIES ${PROJECT_NAME}
   CATKIN_DEPENDS ${PACKAGE_DEPENDENCIES}
-  DEPENDS octomap PCL
+  DEPENDS octomap PCL OpenCV
 )
 
 set(LINK_LIBS
