@@ -331,7 +331,7 @@ void OctomapServerObjectProbability::insertScan(
   // mark free cells only if not seen occupied in this cloud
   for (KeySet::iterator it = free_cells.begin(), end=free_cells.end(); it!= end; ++it) {
     if (occupied_cells.find(*it) == occupied_cells.end()) {
-      m_octree->updateNode(*it, (float)0.5);  // set object probability as 0.5
+      m_octree->updateNode(*it, false);  // set object probability as 0.5
     }
   }
 
