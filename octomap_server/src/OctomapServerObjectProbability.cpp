@@ -13,7 +13,7 @@ bool is_equal (double a, double b, double epsilon = 1.0e-7)
 OctomapServerObjectProbability::OctomapServerObjectProbability(ros::NodeHandle private_nh_)
 : m_nh(),
   m_pointCloudSub(NULL),
-  m_tfPointCloudSub(NULL),
+  m_objProbaImageSub(NULL),
   m_reconfigureServer(m_config_mutex),
   m_octree(NULL),
   m_maxRange(-1.0),
@@ -144,10 +144,10 @@ OctomapServerObjectProbability::OctomapServerObjectProbability(ros::NodeHandle p
   m_mapPub = m_nh.advertise<nav_msgs::OccupancyGrid>("projected_map", 5, m_latchedTopics);
   m_fmarkerPub = m_nh.advertise<visualization_msgs::MarkerArray>("free_cells_vis_array", 1, m_latchedTopics);
 
-  m_pointCloudSub = new message_filters::Subscriber<sensor_msgs::PointCloud2> (m_nh, "cloud_in", 5);
-  m_objProbaImageSub = new message_filters::Subscriber<sensor_msgs::Image> (m_nh, "proba_image_in", 5);
-  m_tfPointCloudSub = new tf::MessageFilter<sensor_msgs::PointCloud2> (*m_pointCloudSub, m_tfListener, m_worldFrameId, 5);
-  m_sync = new message_filters::Synchronizer<ApproximateSyncPolicy>(ApproximateSyncPolicy(20), *m_pointCloudSub,  *m_objProbaImageSub);
+  m_pointCloudSub = new message_filters::Subscriber<sensor_msgs::PointCloud2>(m_nh, "cloud_in", 5);
+  m_objProbaImageSub = new message_filters::Subscriber<sensor_msgs::Image>(m_nh, "proba_image_in", 5);
+  m_sync = new message_filters::Synchronizer<ApproximateSyncPolicy>(100);
+  m_sync->connectInput(*m_pointCloudSub, *m_objProbaImageSub);
   m_sync->registerCallback(boost::bind(&OctomapServerObjectProbability::insertCallback, this, _1, _2));
 
   m_octomapBinaryService = m_nh.advertiseService("octomap_binary", &OctomapServerObjectProbability::octomapBinarySrv, this);
@@ -161,9 +161,9 @@ OctomapServerObjectProbability::OctomapServerObjectProbability(ros::NodeHandle p
 }
 
 OctomapServerObjectProbability::~OctomapServerObjectProbability(){
-  if (m_tfPointCloudSub){
-    delete m_tfPointCloudSub;
-    m_tfPointCloudSub = NULL;
+  if (m_objProbaImageSub) {
+    delete m_objProbaImageSub;
+    m_objProbaImageSub = NULL;
   }
 
   if (m_pointCloudSub){
