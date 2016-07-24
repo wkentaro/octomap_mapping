@@ -18,7 +18,7 @@ OctomapServerObjectProbability::OctomapServerObjectProbability(ros::NodeHandle p
   m_reconfigureServer(m_config_mutex),
   m_octree(NULL),
   m_maxRange(-1.0),
-  m_worldFrameId("/map"), m_baseFrameId("base_footprint"),
+  m_worldFrameId("/map"),
   m_useHeightMap(true),
   m_useColoredMap(false),
   m_colorFactor(0.8),
@@ -46,7 +46,6 @@ OctomapServerObjectProbability::OctomapServerObjectProbability(ros::NodeHandle p
 
   ros::NodeHandle private_nh(private_nh_);
   private_nh.param("frame_id", m_worldFrameId, m_worldFrameId);
-  private_nh.param("base_frame_id", m_baseFrameId, m_baseFrameId);
   private_nh.param("height_map", m_useHeightMap, m_useHeightMap);
   private_nh.param("colored_map", m_useColoredMap, m_useColoredMap);
   private_nh.param("color_factor", m_colorFactor, m_colorFactor);
