@@ -307,7 +307,7 @@ void OctomapServerObjectProbability::insertScan(
       // occupied endpoint
       OcTreeKey key;
       if (m_octree->coordToKeyChecked(point, key)) {
-        m_octree->updateNode(key, object_probability);
+        m_octree->updateNode(key, octomap::logodds(object_probability));
 
         updateMinKey(key, m_updateBBXMin);
         updateMaxKey(key, m_updateBBXMax);
