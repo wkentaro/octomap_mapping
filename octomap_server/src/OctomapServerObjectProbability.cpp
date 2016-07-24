@@ -238,7 +238,6 @@ void OctomapServerObjectProbability::insertCallback(
   const sensor_msgs::PointCloud2::ConstPtr& cloud,
   const sensor_msgs::Image::ConstPtr& imgmsg)
 {
-  ROS_ERROR("Synchronized");
   insertScan(cloud, imgmsg);
   publishAll(cloud->header.stamp);
 }
