@@ -158,8 +158,6 @@ OctomapServerObjectProbability::OctomapServerObjectProbability(ros::NodeHandle p
   dynamic_reconfigure::Server<OctomapServerConfig>::CallbackType f;
   f = boost::bind(&OctomapServerObjectProbability::reconfigureCallback, this, _1, _2);
   m_reconfigureServer.setCallback(f);
-
-  ROS_ERROR("Initialized");
 }
 
 OctomapServerObjectProbability::~OctomapServerObjectProbability(){
