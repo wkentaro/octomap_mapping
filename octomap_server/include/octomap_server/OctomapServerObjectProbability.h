@@ -102,11 +102,11 @@ protected:
   * @brief update occupancy map with a scan labeled as ground and nonground.
   * The scans should be in the global map frame.
   *
-  * @param sensorOrigin origin of the measurements for raycasting
   * @param ground scan endpoints on the ground plane (only clear space)
   * @param nonground all other endpoints (clear up to occupied endpoint)
   */
-  virtual void insertScan(const tf::Point& sensorOrigin, const sensor_msgs::PointCloud2::ConstPtr& cloud, const sensor_msgs::Image::ConstPtr& imgmsg);
+  virtual void insertScan(const sensor_msgs::PointCloud2::ConstPtr& cloud,
+                          const sensor_msgs::Image::ConstPtr& imgmsg);
 
   /**
   * @brief Find speckle nodes (single occupied voxels with no neighbors). Only works on lowest resolution!

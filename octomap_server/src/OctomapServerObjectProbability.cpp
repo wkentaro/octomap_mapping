@@ -1,3 +1,4 @@
+// vim: tabstop=2 shiftwidth=2:
 #include <octomap_server/OctomapServerObjectProbability.h>
 
 using namespace octomap;
@@ -158,6 +159,8 @@ OctomapServerObjectProbability::OctomapServerObjectProbability(ros::NodeHandle p
   dynamic_reconfigure::Server<OctomapServerConfig>::CallbackType f;
   f = boost::bind(&OctomapServerObjectProbability::reconfigureCallback, this, _1, _2);
   m_reconfigureServer.setCallback(f);
+
+  ROS_ERROR("Initialized");
 }
 
 OctomapServerObjectProbability::~OctomapServerObjectProbability(){
@@ -236,35 +239,41 @@ void OctomapServerObjectProbability::insertCallback(
   const sensor_msgs::PointCloud2::ConstPtr& cloud,
   const sensor_msgs::Image::ConstPtr& imgmsg)
 {
-  tf::StampedTransform sensorToWorldTf;
-  try {
-    m_tfListener.lookupTransform(m_worldFrameId, cloud->header.frame_id, cloud->header.stamp, sensorToWorldTf);
-  } catch(tf::TransformException& ex){
-    ROS_ERROR_STREAM( "Transform error of sensor data: " << ex.what() << ", quitting callback");
-    return;
-  }
-
-  insertScan(sensorToWorldTf.getOrigin(), cloud, imgmsg);
-
+  ROS_ERROR("Synchronized");
+  insertScan(cloud, imgmsg);
   publishAll(cloud->header.stamp);
 }
 
 void OctomapServerObjectProbability::insertScan(
-  const tf::Point& sensorOriginTf,
   const sensor_msgs::PointCloud2::ConstPtr& cloud,
   const sensor_msgs::Image::ConstPtr& imgmsg)
 {
-  octomap::point3d sensorOrigin = pointTfToOctomap(sensorOriginTf);
-
-  if (!(cloud->height == imgmsg->height && cloud->width == imgmsg->width))
-  {
+  if (!(cloud->height == imgmsg->height && cloud->width == imgmsg->width)) {
     ROS_ERROR("Input point cloud and image has different size. cloud: (%d, %d), image: (%d, %d)",
               cloud->width, cloud->height, imgmsg->width, imgmsg->height);
     return;
   }
 
+  // Get transform of sensor to the world
+  tf::StampedTransform sensorToWorldTf;
+  try {
+    m_tfListener.lookupTransform(m_worldFrameId, cloud->header.frame_id, cloud->header.stamp, sensorToWorldTf);
+  } catch(tf::TransformException& ex) {
+    ROS_ERROR_STREAM("Transform error of sensor data: " << ex.what() << ", quitting callback");
+    return;
+  }
+
+  // Get sensor origin
+  tf::Point sensorOriginTf = sensorToWorldTf.getOrigin();
+  octomap::point3d sensorOrigin = pointTfToOctomap(sensorOriginTf);
+
   PCLPointCloud pc;
   pcl::fromROSMsg(*cloud, pc);
+
+  // transform clouds to world frame for insertion
+  Eigen::Matrix4f sensorToWorld;
+  pcl_ros::transformAsMatrix(sensorToWorldTf, sensorToWorld);
+  pcl::transformPointCloud(pc, pc, sensorToWorld);
 
   cv::Mat proba_img = cv_bridge::toCvCopy(imgmsg, imgmsg->encoding)->image;
 
@@ -285,6 +294,10 @@ void OctomapServerObjectProbability::insertScan(
   for (size_t index = 0; index < pc.points.size(); index++) {
     int width_index = index % cloud->width;
     int height_index = index / cloud->width;
+    if (isnan(pc.points[index].x) || isnan(pc.points[index].y) || isnan(pc.points[index].z)) {
+      // Skip NaN points
+      continue;
+    }
     octomap::point3d point(pc.points[index].x, pc.points[index].y, pc.points[index].z);
     float object_probability = proba_img.at<float>(height_index, width_index);
     // maxrange check
