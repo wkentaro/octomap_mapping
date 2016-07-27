@@ -93,6 +93,7 @@ protected:
             && key[1] <= m_updateBBXMax[1]);
   }
 
+  void periodicalPublishCallback(const ros::TimerEvent& event);
   void reconfigureCallback(octomap_server::OctomapServerConfig& config, uint32_t level);
   void publishBinaryOctoMap(const ros::Time& rostime = ros::Time::now()) const;
   void publishFullOctoMap(const ros::Time& rostime = ros::Time::now()) const;
@@ -191,6 +192,9 @@ protected:
 
   bool m_latchedTopics;
   bool m_publishFreeSpace;
+  bool m_publishPeriodically;
+
+  ros::Timer m_periodicalPublishTimer;
 
   double m_res;
   unsigned m_treeDepth;

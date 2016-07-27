@@ -22,6 +22,7 @@ OctomapServerObjectProbability::OctomapServerObjectProbability(ros::NodeHandle p
   m_useHeightMap(true),
   m_useColoredMap(false),
   m_colorFactor(0.8),
+  m_publishPeriodically(false),
   m_latchedTopics(true),
   m_publishFreeSpace(false),
   m_res(0.05),
@@ -136,6 +137,15 @@ OctomapServerObjectProbability::OctomapServerObjectProbability(ros::NodeHandle p
     ROS_INFO("Publishing latched (single publish will take longer, all topics are prepared)");
   } else
     ROS_INFO("Publishing non-latched (topics are only prepared as needed, will only be re-published on map change");
+
+  private_nh.param("publish_periodically", m_publishPeriodically, m_publishPeriodically);
+  if (m_publishPeriodically) {
+    m_periodicalPublishTimer = private_nh.createTimer(
+      ros::Duration(0.1),
+      &OctomapServerObjectProbability::periodicalPublishCallback,
+      this,
+      /*oneshot=*/false);
+  }
 
   m_markerPub = m_nh.advertise<visualization_msgs::MarkerArray>("occupied_cells_vis_array", 1, m_latchedTopics);
   m_binaryMapPub = m_nh.advertise<Octomap>("octomap_binary", 1, m_latchedTopics);
@@ -353,6 +363,11 @@ void OctomapServerObjectProbability::insertScan(
   }
 
 }  // OctomapServerObjectProbability::insertScan
+
+
+void OctomapServerObjectProbability::periodicalPublishCallback(const ros::TimerEvent& event) {
+  publishAll(event.current_real);
+}
 
 
 void OctomapServerObjectProbability::publishAll(const ros::Time& rostime) {
