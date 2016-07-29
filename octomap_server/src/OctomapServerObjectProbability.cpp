@@ -573,6 +573,7 @@ void OctomapServerObjectProbability::publishAll(const ros::Time& rostime) {
     pcl::toROSMsg (pclCloud, cloud);
     cloud.header.frame_id = m_worldFrameId;
     cloud.header.stamp = rostime;
+    cloud.is_dense = false;
     m_pointCloudPub.publish(cloud);
   }
 
