@@ -282,13 +282,19 @@ void OctomapServer::insertCloudCallback(const sensor_msgs::PointCloud2::ConstPtr
 
 
   // set up filter for height range, also removes NANs:
+#ifdef COLOR_OCTOMAP_SERVER
+  pcl::PassThrough<pcl::PointXYZRGB> pass_x;
+  pcl::PassThrough<pcl::PointXYZRGB> pass_y;
+  pcl::PassThrough<pcl::PointXYZRGB> pass_z;
+#else
   pcl::PassThrough<pcl::PointXYZ> pass_x;
+  pcl::PassThrough<pcl::PointXYZ> pass_y;
+  pcl::PassThrough<pcl::PointXYZ> pass_z;
+#endif
   pass_x.setFilterFieldName("x");
   pass_x.setFilterLimits(m_pointcloudMinX, m_pointcloudMaxX);
-  pcl::PassThrough<pcl::PointXYZ> pass_y;
   pass_y.setFilterFieldName("y");
   pass_y.setFilterLimits(m_pointcloudMinY, m_pointcloudMaxY);
-  pcl::PassThrough<pcl::PointXYZ> pass_z;
   pass_z.setFilterFieldName("z");
   pass_z.setFilterLimits(m_pointcloudMinZ, m_pointcloudMaxZ);
 
