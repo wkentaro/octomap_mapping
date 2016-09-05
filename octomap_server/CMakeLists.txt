@@ -51,7 +51,14 @@ set(LINK_LIBS
   ${PCL_LIBRARIES}
 )
 
-add_library(${PROJECT_NAME} src/OctomapServer.cpp src/OctomapServerMultilayer.cpp src/SingleLabelOctomapServer.cpp src/TrackingOctomapServer.cpp)
+add_library(${PROJECT_NAME}
+  src/LabelOctomapServer.cpp
+  src/OctomapServer.cpp
+  src/OctomapServerMultilayer.cpp
+  src/SingleLabelOctomapServer.cpp
+  src/TrackingOctomapServer.cpp
+)
+
 target_link_libraries(${PROJECT_NAME} ${LINK_LIBS})
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
 
