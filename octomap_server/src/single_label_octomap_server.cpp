@@ -36,7 +36,7 @@
 
 #include <string>
 
-#include "octomap_server/LabelOctomapServer.h"
+#include "octomap_server/SingleLabelOctomapServer.h"
 
 #define USAGE "\nUSAGE: label_octomap_server <map.[bt|ot]>\n" \
               "  map.bt: inital octomap 3D map file to read\n"
@@ -53,7 +53,7 @@ int main(int argc, char** argv)
     exit(-1);
   }
 
-  octomap_server::LabelOctomapServer server;
+  octomap_server::SingleLabelOctomapServer server;
   ros::spinOnce();
 
   if (argc == 2)

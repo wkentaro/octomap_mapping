@@ -49,7 +49,7 @@
 namespace octomap_server
 {
 
-class LabelOctomapServer
+class SingleLabelOctomapServer
 {
 public:
 #ifdef COLOR_OCTOMAP_SERVER
@@ -66,8 +66,8 @@ public:
 
   typedef message_filters::sync_policies::ApproximateTime <sensor_msgs::PointCloud2, sensor_msgs::Image> ApproximateSyncPolicy;
 
-  LabelOctomapServer();
-  virtual ~LabelOctomapServer();
+  SingleLabelOctomapServer();
+  virtual ~SingleLabelOctomapServer();
   virtual bool octomapBinarySrv(OctomapSrv::Request  &req, OctomapSrv::GetOctomap::Response &res);
   virtual bool octomapFullSrv(OctomapSrv::Request  &req, OctomapSrv::GetOctomap::Response &res);
   bool clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& resp);

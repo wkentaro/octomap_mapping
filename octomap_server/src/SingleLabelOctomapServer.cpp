@@ -36,7 +36,7 @@
 #include <limits>
 #include <string>
 
-#include <octomap_server/LabelOctomapServer.h>
+#include <octomap_server/SingleLabelOctomapServer.h>
 
 namespace octomap_server
 {
@@ -46,7 +46,7 @@ bool is_equal(double a, double b, double epsilon = 1.0e-7)
   return std::abs(a - b) < epsilon;
 }
 
-LabelOctomapServer::LabelOctomapServer() :
+SingleLabelOctomapServer::SingleLabelOctomapServer() :
   nh_(),
   pnh_(ros::NodeHandle("~")),
   sub_point_cloud_(NULL),
@@ -160,7 +160,7 @@ LabelOctomapServer::LabelOctomapServer() :
   {
     timer_periodical_publish_ = pnh_.createTimer(
         ros::Duration(1.0 / publish_rate_),
-        &LabelOctomapServer::periodicalPublishCallback,
+        &SingleLabelOctomapServer::periodicalPublishCallback,
         this,
         /*oneshot=*/false);
   }
@@ -176,17 +176,17 @@ LabelOctomapServer::LabelOctomapServer() :
   sub_obj_proba_img_ = new message_filters::Subscriber<sensor_msgs::Image>(nh_, "proba_image_in", 5);
   async_ = new message_filters::Synchronizer<ApproximateSyncPolicy>(100);
   async_->connectInput(*sub_point_cloud_, *sub_obj_proba_img_);
-  async_->registerCallback(boost::bind(&LabelOctomapServer::insertCallback, this, _1, _2));
+  async_->registerCallback(boost::bind(&SingleLabelOctomapServer::insertCallback, this, _1, _2));
 
-  srv_octomap_binary_ = nh_.advertiseService("octomap_binary", &LabelOctomapServer::octomapBinarySrv, this);
-  srv_octomap_full_ = nh_.advertiseService("octomap_full", &LabelOctomapServer::octomapFullSrv, this);
-  srv_clear_bbx_ = pnh_.advertiseService("clear_bbx", &LabelOctomapServer::clearBBXSrv, this);
-  srv_reset_ = pnh_.advertiseService("reset", &LabelOctomapServer::resetSrv, this);
+  srv_octomap_binary_ = nh_.advertiseService("octomap_binary", &SingleLabelOctomapServer::octomapBinarySrv, this);
+  srv_octomap_full_ = nh_.advertiseService("octomap_full", &SingleLabelOctomapServer::octomapFullSrv, this);
+  srv_clear_bbx_ = pnh_.advertiseService("clear_bbx", &SingleLabelOctomapServer::clearBBXSrv, this);
+  srv_reset_ = pnh_.advertiseService("reset", &SingleLabelOctomapServer::resetSrv, this);
 
-  reconfigure_server_.setCallback(boost::bind(&LabelOctomapServer::reconfigureCallback, this, _1, _2));
+  reconfigure_server_.setCallback(boost::bind(&SingleLabelOctomapServer::reconfigureCallback, this, _1, _2));
 }
 
-LabelOctomapServer::~LabelOctomapServer()
+SingleLabelOctomapServer::~SingleLabelOctomapServer()
 {
   if (sub_obj_proba_img_)
   {
@@ -207,7 +207,7 @@ LabelOctomapServer::~LabelOctomapServer()
   }
 }
 
-bool LabelOctomapServer::openFile(const std::string& filename)
+bool SingleLabelOctomapServer::openFile(const std::string& filename)
 {
   if (filename.length() <= 3)
   {
@@ -270,7 +270,7 @@ bool LabelOctomapServer::openFile(const std::string& filename)
   return true;
 }
 
-void LabelOctomapServer::insertCallback(
+void SingleLabelOctomapServer::insertCallback(
     const sensor_msgs::PointCloud2::ConstPtr& cloud,
     const sensor_msgs::Image::ConstPtr& imgmsg)
 {
@@ -278,7 +278,7 @@ void LabelOctomapServer::insertCallback(
   publishAll(cloud->header.stamp);
 }
 
-void LabelOctomapServer::insertScan(
+void SingleLabelOctomapServer::insertScan(
     const sensor_msgs::PointCloud2::ConstPtr& cloud,
     const sensor_msgs::Image::ConstPtr& imgmsg)
 {
@@ -407,12 +407,12 @@ void LabelOctomapServer::insertScan(
   }
 }
 
-void LabelOctomapServer::periodicalPublishCallback(const ros::TimerEvent& event)
+void SingleLabelOctomapServer::periodicalPublishCallback(const ros::TimerEvent& event)
 {
   publishAll(event.current_real);
 }
 
-void LabelOctomapServer::publishAll(const ros::Time& rostime)
+void SingleLabelOctomapServer::publishAll(const ros::Time& rostime)
 {
   ros::WallTime start_time = ros::WallTime::now();
 
@@ -663,10 +663,10 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   }
 
   double total_elapsed = (ros::WallTime::now() - start_time).toSec();
-  ROS_DEBUG("Map publishing in LabelOctomapServer took %f sec", total_elapsed);
+  ROS_DEBUG("Map publishing in SingleLabelOctomapServer took %f sec", total_elapsed);
 }
 
-bool LabelOctomapServer::octomapBinarySrv(OctomapSrv::Request  &req,
+bool SingleLabelOctomapServer::octomapBinarySrv(OctomapSrv::Request  &req,
     OctomapSrv::Response &res)
 {
   ros::WallTime start_time = ros::WallTime::now();
@@ -681,7 +681,7 @@ bool LabelOctomapServer::octomapBinarySrv(OctomapSrv::Request  &req,
   return true;
 }
 
-bool LabelOctomapServer::octomapFullSrv(OctomapSrv::Request  &req,
+bool SingleLabelOctomapServer::octomapFullSrv(OctomapSrv::Request  &req,
     OctomapSrv::Response &res)
 {
   ROS_INFO("Sending full map data on service request");
@@ -695,7 +695,7 @@ bool LabelOctomapServer::octomapFullSrv(OctomapSrv::Request  &req,
   return true;
 }
 
-bool LabelOctomapServer::clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& resp)
+bool SingleLabelOctomapServer::clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& resp)
 {
   octomap::point3d min = octomap::pointMsgToOctomap(req.min);
   octomap::point3d max = octomap::pointMsgToOctomap(req.max);
@@ -715,7 +715,7 @@ bool LabelOctomapServer::clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& res
   return true;
 }
 
-bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty::Response& resp)
+bool SingleLabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty::Response& resp)
 {
   visualization_msgs::MarkerArray occupied_nodes_vis;
   occupied_nodes_vis.markers.resize(tree_depth_ +1);
@@ -762,7 +762,7 @@ bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty
   return true;
 }
 
-void LabelOctomapServer::publishBinaryOctoMap(const ros::Time& rostime) const
+void SingleLabelOctomapServer::publishBinaryOctoMap(const ros::Time& rostime) const
 {
   octomap_msgs::Octomap map;
   map.header.frame_id = world_frame_id_;
@@ -778,7 +778,7 @@ void LabelOctomapServer::publishBinaryOctoMap(const ros::Time& rostime) const
   }
 }
 
-void LabelOctomapServer::publishFullOctoMap(const ros::Time& rostime) const
+void SingleLabelOctomapServer::publishFullOctoMap(const ros::Time& rostime) const
 {
   octomap_msgs::Octomap map;
   map.header.frame_id = world_frame_id_;
@@ -794,7 +794,7 @@ void LabelOctomapServer::publishFullOctoMap(const ros::Time& rostime) const
   }
 }
 
-void LabelOctomapServer::handlePreNodeTraversal(const ros::Time& rostime)
+void SingleLabelOctomapServer::handlePreNodeTraversal(const ros::Time& rostime)
 {
   if (publish_2d_map_)
   {
@@ -920,7 +920,7 @@ void LabelOctomapServer::handlePreNodeTraversal(const ros::Time& rostime)
   }
 }
 
-void LabelOctomapServer::handlePostNodeTraversal(const ros::Time& rostime)
+void SingleLabelOctomapServer::handlePostNodeTraversal(const ros::Time& rostime)
 {
   if (publish_2d_map_)
   {
@@ -928,7 +928,7 @@ void LabelOctomapServer::handlePostNodeTraversal(const ros::Time& rostime)
   }
 }
 
-void LabelOctomapServer::handleOccupiedNode(const OcTreeT::iterator& it)
+void SingleLabelOctomapServer::handleOccupiedNode(const OcTreeT::iterator& it)
 {
   if (publish_2d_map_ && project_complete_map_)
   {
@@ -936,7 +936,7 @@ void LabelOctomapServer::handleOccupiedNode(const OcTreeT::iterator& it)
   }
 }
 
-void LabelOctomapServer::handleFreeNode(const OcTreeT::iterator& it)
+void SingleLabelOctomapServer::handleFreeNode(const OcTreeT::iterator& it)
 {
   if (publish_2d_map_ && project_complete_map_)
   {
@@ -944,7 +944,7 @@ void LabelOctomapServer::handleFreeNode(const OcTreeT::iterator& it)
   }
 }
 
-void LabelOctomapServer::handleOccupiedNodeInBBX(const OcTreeT::iterator& it)
+void SingleLabelOctomapServer::handleOccupiedNodeInBBX(const OcTreeT::iterator& it)
 {
   if (publish_2d_map_ && !project_complete_map_)
   {
@@ -952,7 +952,7 @@ void LabelOctomapServer::handleOccupiedNodeInBBX(const OcTreeT::iterator& it)
   }
 }
 
-void LabelOctomapServer::handleFreeNodeInBBX(const OcTreeT::iterator& it)
+void SingleLabelOctomapServer::handleFreeNodeInBBX(const OcTreeT::iterator& it)
 {
   if (publish_2d_map_ && !project_complete_map_)
   {
@@ -960,7 +960,7 @@ void LabelOctomapServer::handleFreeNodeInBBX(const OcTreeT::iterator& it)
   }
 }
 
-void LabelOctomapServer::update2DMap(const OcTreeT::iterator& it, bool occupied)
+void SingleLabelOctomapServer::update2DMap(const OcTreeT::iterator& it, bool occupied)
 {
   // update 2D map (occupied always overrides):
 
@@ -999,7 +999,7 @@ void LabelOctomapServer::update2DMap(const OcTreeT::iterator& it, bool occupied)
   }
 }
 
-bool LabelOctomapServer::isSpeckleNode(const octomap::OcTreeKey& nKey) const
+bool SingleLabelOctomapServer::isSpeckleNode(const octomap::OcTreeKey& nKey) const
 {
   octomap::OcTreeKey key;
   bool neighborFound = false;
@@ -1025,7 +1025,7 @@ bool LabelOctomapServer::isSpeckleNode(const octomap::OcTreeKey& nKey) const
   return neighborFound;
 }
 
-void LabelOctomapServer::reconfigureCallback(octomap_server::OctomapServerConfig& config, uint32_t level)
+void SingleLabelOctomapServer::reconfigureCallback(octomap_server::OctomapServerConfig& config, uint32_t level)
 {
   if (max_tree_depth_ != unsigned(config.max_depth))
   {
@@ -1091,7 +1091,7 @@ void LabelOctomapServer::reconfigureCallback(octomap_server::OctomapServerConfig
   publishAll();
 }
 
-void LabelOctomapServer::adjustMapData(nav_msgs::OccupancyGrid& map, const nav_msgs::MapMetaData& old_map_info) const
+void SingleLabelOctomapServer::adjustMapData(nav_msgs::OccupancyGrid& map, const nav_msgs::MapMetaData& old_map_info) const
 {
   if (map.info.resolution != old_map_info.resolution)
   {
@@ -1134,7 +1134,7 @@ void LabelOctomapServer::adjustMapData(nav_msgs::OccupancyGrid& map, const nav_m
   }
 }
 
-std_msgs::ColorRGBA LabelOctomapServer::heightMapColor(double h)
+std_msgs::ColorRGBA SingleLabelOctomapServer::heightMapColor(double h)
 {
   std_msgs::ColorRGBA color;
   color.a = 1.0;
