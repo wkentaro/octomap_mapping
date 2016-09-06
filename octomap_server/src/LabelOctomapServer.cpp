@@ -64,7 +64,7 @@ LabelOctomapServer::LabelOctomapServer() :
   latched_topics_(true),
   publish_free_space_(false),
   resolution_(0.05),
-  n_label_(1),
+  n_label_(0),
   tree_depth_(0),
   max_tree_depth_(0),
   occupancy_min_z_(-std::numeric_limits<double>::max()),
@@ -86,7 +86,12 @@ LabelOctomapServer::LabelOctomapServer() :
   pnh_.param("min_y_size", min_size_y_, min_size_y_);
   pnh_.param("filter_speckles", filter_speckles_, filter_speckles_);
   pnh_.param("resolution", resolution_, resolution_);
-  pnh_.param("n_label", n_label_, n_label_);
+  if (!pnh_.hasParam("n_label"))
+  {
+    ROS_FATAL("Rosparam '~n_label' must be set.");
+    exit(1);
+  }
+  pnh_.getParam("n_label", n_label_);
 
   double prob_hit;
   double prob_miss;
@@ -335,11 +340,11 @@ void LabelOctomapServer::insertScan(
       if (octree_->coordToKeyChecked(point, key))
       {
         // update log_odds for the voxel
-        std::valarray<double> log_odds(proba_img.dims);
-        for (size_t channel_index=0; channel_index < proba_img.dims; channel_index++)
+        std::valarray<float> log_odds(proba_img.channels());
+        for (int channel_index=0; channel_index < proba_img.channels(); channel_index++)
         {
-          float label_probability = proba_img.at<float>(height_index, width_index, channel_index);
-          log_odds[channel_index] = octomap::logodds(label_probability);
+          float label_probability = proba_img.ptr<float>(height_index)[2 * width_index + channel_index];
+          log_odds[channel_index] = octomap::logodds(static_cast<double>(label_probability));
         }
         octree_->updateNode(key, log_odds);
 
@@ -669,7 +674,7 @@ bool LabelOctomapServer::clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& res
   octomap::point3d max = octomap::pointMsgToOctomap(req.max);
 
   double threshold_min = octree_->getClampingThresMin();
-  std::valarray<double> log_odds(octomap::logodds(threshold_min), n_label_);
+  std::valarray<float> log_odds(octomap::logodds(threshold_min), n_label_);
   for (OcTreeT::leaf_bbx_iterator it = octree_->begin_leafs_bbx(min, max),
       end = octree_->end_leafs_bbx(); it != end; ++it)
   {

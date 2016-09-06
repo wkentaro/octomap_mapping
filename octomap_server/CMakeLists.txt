@@ -77,6 +77,9 @@ target_link_libraries(octomap_server_multilayer ${PROJECT_NAME} ${LINK_LIBS})
 add_executable(single_label_octomap_server src/single_label_octomap_server.cpp)
 target_link_libraries(single_label_octomap_server ${PROJECT_NAME} ${LINK_LIBS})
 
+add_executable(label_octomap_server src/label_octomap_server.cpp)
+target_link_libraries(label_octomap_server ${PROJECT_NAME} ${LINK_LIBS})
+
 add_executable(octomap_saver src/octomap_saver.cpp)
 target_link_libraries(octomap_saver ${PROJECT_NAME} ${LINK_LIBS})
 
