@@ -306,6 +306,14 @@ void LabelOctomapServer::insertScan(
 
   cv::Mat proba_img = cv_bridge::toCvCopy(imgmsg, imgmsg->encoding)->image;
 
+  if (n_label_ != proba_img.channels())
+  {
+    ROS_ERROR("Number of labels and channels must be same. label: %d, probability image channel: %d",
+              n_label_, proba_img.channels());
+    return;
+  }
+
+
   if (!octree_->coordToKeyChecked(sensor_origin, update_bbx_min_) ||
       !octree_->coordToKeyChecked(sensor_origin, update_bbx_max_))
   {
@@ -339,6 +347,8 @@ void LabelOctomapServer::insertScan(
       octomap::OcTreeKey key;
       if (octree_->coordToKeyChecked(point, key))
       {
+        occupied_cells.insert(key);
+
         // update log_odds for the voxel
         std::valarray<float> log_odds(proba_img.channels());
         for (int channel_index=0; channel_index < proba_img.channels(); channel_index++)
@@ -374,7 +384,6 @@ void LabelOctomapServer::insertScan(
     }
   }
 
-  // mark free cells only if not seen occupied in this cloud
   for (octomap::KeySet::iterator it = free_cells.begin(), end=free_cells.end(); it!= end; ++it)
   {
     if (occupied_cells.find(*it) == occupied_cells.end())
