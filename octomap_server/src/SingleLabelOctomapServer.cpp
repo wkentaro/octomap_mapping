@@ -352,6 +352,8 @@ void SingleLabelOctomapServer::insertScan(
       octomap::OcTreeKey key;
       if (octree_->coordToKeyChecked(point, key))
       {
+        occupied_cells.insert(key);
+
         octree_->updateNode(key, octomap::logodds(label_proba));
 
         updateMinKey(key, update_bbx_min_);
