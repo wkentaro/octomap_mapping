@@ -355,7 +355,9 @@ void LabelOctomapServer::insertScan(
         std::valarray<float> log_odds(proba_img.channels());
         for (int channel_index=0; channel_index < proba_img.channels(); channel_index++)
         {
-          float label_probability = proba_img.ptr<float>(height_index)[2 * width_index + channel_index];
+          // float label_probability = proba_img.at<float>(height_index, width_index);
+          float label_probability = proba_img.ptr<float>(height_index)[proba_img.channels() * width_index
+                                                                       + channel_index];
           log_odds[channel_index] = octomap::logodds(static_cast<double>(label_probability));
         }
         octree_->updateNode(key, log_odds);
