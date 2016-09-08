@@ -36,6 +36,8 @@
 #include <limits>
 #include <string>
 
+#include <cv_bridge/rgb_colors.h>
+
 #include <octomap_server/LabelOctomapServer.h>
 
 namespace octomap_server
@@ -761,13 +763,40 @@ void LabelOctomapServer::publishBinaryOctoMap(const ros::Time& rostime) const
   }
 }
 
+bool LabelOctomapServer::fullMapToMsg(const OcTreeT* octree, octomap_msgs::Octomap& msg) const
+{
+  octomap::ColorOcTree* color_octree = new octomap::ColorOcTree(resolution_);
+  for (typename OcTreeT::iterator it=octree->begin(octree->getTreeDepth()), end=octree->end(); it != end; ++it)
+  {
+    octomap::OcTreeKey key = it.getKey();
+    std::valarray<float> occupancy = (*it).getOccupancy();
+    assert(occupancy.size() == n_label_);
+    int label;
+    float max_probability = 0.0;
+    for (int i=0; i < occupancy.size(); i++)
+    {
+      if (occupancy[i] > max_probability) {
+        max_probability = occupancy[i];
+        label = i;
+      }
+    }
+    color_octree->setNodeValue(key, octomap::logodds(max_probability));
+    cv::Vec3d rgb = cv_bridge::rgb_colors::getRGBColor(label);
+    color_octree->setNodeColor(key,
+                               static_cast<uint8_t>(rgb[0] * 255),
+                               static_cast<uint8_t>(rgb[1] * 255),
+                               static_cast<uint8_t>(rgb[2] * 255));
+  }
+  return octomap_msgs::fullMapToMsg(*color_octree, msg);
+}
+
 void LabelOctomapServer::publishFullOctoMap(const ros::Time& rostime) const
 {
   octomap_msgs::Octomap map;
   map.header.frame_id = world_frame_id_;
   map.header.stamp = rostime;
 
-  if (octomap_msgs::fullMapToMsg(*octree_, map))
+  if (fullMapToMsg(octree_, map))
   {
     pub_full_map_.publish(map);
   }

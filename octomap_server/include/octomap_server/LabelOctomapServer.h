@@ -179,6 +179,8 @@ protected:
 
   static std_msgs::ColorRGBA heightMapColor(double h);
 
+  bool fullMapToMsg(const OcTreeT* octree, octomap_msgs::Octomap& msg) const;
+
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
   ros::Publisher pub_marker_;
