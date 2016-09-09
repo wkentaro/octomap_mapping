@@ -63,7 +63,6 @@ LabelOctomapServer::LabelOctomapServer() :
   color_factor_(0.8),
   publish_rate_(0),
   latched_topics_(true),
-  publish_free_space_(false),
   resolution_(0.05),
   n_label_(0),
   tree_depth_(0),
@@ -131,8 +130,6 @@ LabelOctomapServer::LabelOctomapServer() :
   color_free_.g = g;
   color_free_.b = b;
   color_free_.a = a;
-
-  pnh_.param("publish_free_space", publish_free_space_, publish_free_space_);
 
   pnh_.param("latch", latched_topics_, latched_topics_);
   if (latched_topics_)
@@ -425,7 +422,7 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   }
 
   bool publish_marker_array = (latched_topics_ || pub_marker_.getNumSubscribers() > 0);
-  bool publish_free_marker_array = publish_free_space_ && (latched_topics_ || pub_fmarker_.getNumSubscribers() > 0);
+  bool publish_free_marker_array = (latched_topics_ || pub_fmarker_.getNumSubscribers() > 0);
   bool publish_point_cloud = (latched_topics_ || pub_point_cloud_.getNumSubscribers() > 0);
 
   // init markers for free space:

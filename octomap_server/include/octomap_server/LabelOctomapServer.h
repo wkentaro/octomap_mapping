@@ -169,7 +169,6 @@ protected:
   double color_factor_;
 
   bool latched_topics_;
-  bool publish_free_space_;
   double publish_rate_;
 
   ros::Timer timer_periodical_publish_;
