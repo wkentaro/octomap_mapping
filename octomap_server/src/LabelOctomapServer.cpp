@@ -287,7 +287,7 @@ void LabelOctomapServer::insertScan(
   tf::Point sensor_origin_tf = sensor_to_world_tf.getOrigin();
   octomap::point3d sensor_origin = octomap::pointTfToOctomap(sensor_origin_tf);
 
-  PCLPointCloud pc;
+  pcl::PointCloud<pcl::PointXYZ> pc;
   pcl::fromROSMsg(*cloud, pc);
 
   // transform clouds to world frame for insertion
@@ -433,84 +433,106 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   // each array stores all cubes of a different size, one for each depth level:
   free_nodes_vis.markers.resize(tree_depth_+1);
 
-  geometry_msgs::Pose pose;
-  pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
-
   // init markers:
   visualization_msgs::MarkerArray occupied_nodes_vis;
   // each array stores all cubes of a different size, one for each depth level:
   occupied_nodes_vis.markers.resize(tree_depth_+1);
 
   // init pointcloud:
-  PCLPointCloud pcl_cloud;
-  // pcl::PointCloud<PCLPoint> pcl_cloud;
+  pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud;
 
   // now, traverse all leafs in the tree:
   for (OcTreeT::iterator it = octree_->begin(max_tree_depth_), end = octree_->end();
        it != end; ++it)
   {
+    double z = it.getZ();
+    // filter with z value
+    if (z <= occupancy_min_z_ || z >= occupancy_max_z_)
+    {
+      continue;
+    }
+
+    // create markers and point cloud to visualize
     if (octree_->isNodeOccupied(*it))
     {
-      double z = it.getZ();
-      if (z > occupancy_min_z_ && z < occupancy_max_z_)
+      double size = it.getSize();
+      double x = it.getX();
+      double y = it.getY();
+
+      // Ignore speckles in the map:
+      if (filter_speckles_ && (it.getDepth() == tree_depth_ + 1) && isSpeckleNode(it.getKey()))
       {
-        double size = it.getSize();
-        double x = it.getX();
-        double y = it.getY();
+        ROS_DEBUG("Ignoring single speckle at (%f, %f, %f)", x, y, z);
+        continue;
+      } // else: current octree node is no speckle, send it out
 
-        // Ignore speckles in the map:
-        if (filter_speckles_ && (it.getDepth() == tree_depth_ + 1) && isSpeckleNode(it.getKey()))
+      // convert occupancy to color
+      std_msgs::ColorRGBA color;
+      if (publish_marker_array || publish_point_cloud)
+      {
+        std::valarray<float> occupancy = (*it).getOccupancy();
+        int label;
+        float max_probability = 0.0;
+        for (int i=0; i < occupancy.size(); i++)
         {
-          ROS_DEBUG("Ignoring single speckle at (%f, %f, %f)", x, y, z);
-          continue;
-        } // else: current octree node is no speckle, send it out
-
-        // create marker
-        if (publish_marker_array)
-        {
-          unsigned idx = it.getDepth();
-          assert(idx < occupied_nodes_vis.markers.size());
-
-          geometry_msgs::Point cube_center;
-          cube_center.x = x;
-          cube_center.y = y;
-          cube_center.z = z;
-
-          occupied_nodes_vis.markers[idx].points.push_back(cube_center);
+          if (occupancy[i] > max_probability)
+          {
+            max_probability = occupancy[i];
+            label = i;
+          }
         }
+        cv::Vec3d rgb = cv_bridge::rgb_colors::getRGBColor(label);
+        color.r = rgb[0];
+        color.g = rgb[1];
+        color.b = rgb[2];
+        color.a = max_probability;
+      }
 
-        // insert into pointcloud:
-        if (publish_point_cloud)
-        {
-          pcl_cloud.push_back(PCLPoint(x, y, z));
-        }
+      // create marker
+      if (publish_marker_array)
+      {
+        unsigned idx = it.getDepth();
+        assert(idx < occupied_nodes_vis.markers.size());
+
+        geometry_msgs::Point cube_center;
+        cube_center.x = x;
+        cube_center.y = y;
+        cube_center.z = z;
+
+        occupied_nodes_vis.markers[idx].points.push_back(cube_center);
+        occupied_nodes_vis.markers[idx].colors.push_back(color);
+      }
+
+      // insert into pointcloud:
+      if (publish_point_cloud)
+      {
+        pcl::PointXYZRGB point = pcl::PointXYZRGB();
+        point.x = x;
+        point.y = y;
+        point.z = z;
+        point.r = color.r;
+        point.g = color.g;
+        point.b = color.b;
+        pcl_cloud.push_back(point);
       }
     }
     else
     {
-      // node not occupied => mark as free in 2D map if unknown so far
-      double z = it.getZ();
-      if (z > occupancy_min_z_ && z < occupancy_max_z_)
+      // create marker for free space:
+      if (publish_free_marker_array)
       {
-        if (publish_free_space_)
-        {
-          double x = it.getX();
-          double y = it.getY();
+        double x = it.getX();
+        double y = it.getY();
 
-          // create marker for free space:
-          if (publish_free_marker_array)
-          {
-            unsigned idx = it.getDepth();
-            assert(idx < free_nodes_vis.markers.size());
+        unsigned idx = it.getDepth();
+        assert(idx < free_nodes_vis.markers.size());
 
-            geometry_msgs::Point cube_center;
-            cube_center.x = x;
-            cube_center.y = y;
-            cube_center.z = z;
+        geometry_msgs::Point cube_center;
+        cube_center.x = x;
+        cube_center.y = y;
+        cube_center.z = z;
 
-            free_nodes_vis.markers[idx].points.push_back(cube_center);
-          }
-        }
+        free_nodes_vis.markers[idx].points.push_back(cube_center);
       }
     }
   }
