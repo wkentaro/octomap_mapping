@@ -146,7 +146,8 @@ protected:
 
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
-  ros::Publisher pub_marker_;
+  ros::Publisher pub_occupied_fg_;
+  ros::Publisher pub_occupied_bg_;
   ros::Publisher pub_fmarker_;
   ros::Publisher pub_point_cloud_;
   message_filters::Subscriber<sensor_msgs::PointCloud2>* sub_point_cloud_;
@@ -174,6 +175,7 @@ protected:
 
   double resolution_;
   int n_label_;
+  int bg_label_;
   unsigned tree_depth_;
   unsigned max_tree_depth_;
 

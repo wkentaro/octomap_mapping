@@ -64,6 +64,7 @@ LabelOctomapServer::LabelOctomapServer() :
   latched_topics_(true),
   resolution_(0.05),
   n_label_(0),
+  bg_label_(0),
   tree_depth_(0),
   max_tree_depth_(0),
   occupancy_min_z_(-std::numeric_limits<double>::max()),
@@ -88,6 +89,7 @@ LabelOctomapServer::LabelOctomapServer() :
     exit(1);
   }
   pnh_.getParam("n_label", n_label_);
+  pnh_.getParam("bg_label", bg_label_);
 
   double prob_hit;
   double prob_miss;
@@ -149,8 +151,9 @@ LabelOctomapServer::LabelOctomapServer() :
         /*oneshot=*/false);
   }
 
-  pub_marker_ = nh_.advertise<visualization_msgs::MarkerArray>("occupied_cells_vis_array", 1, latched_topics_);
-  pub_fmarker_ = nh_.advertise<visualization_msgs::MarkerArray>("free_cells_vis_array", 1, latched_topics_);
+  pub_occupied_fg_ = nh_.advertise<visualization_msgs::MarkerArray>("marker_array/occupied_fg", 1, latched_topics_);
+  pub_occupied_bg_ = nh_.advertise<visualization_msgs::MarkerArray>("marker_array/occupied_bg", 1, latched_topics_);
+  pub_fmarker_ = nh_.advertise<visualization_msgs::MarkerArray>("marker_array/free", 1, latched_topics_);
   pub_point_cloud_ = nh_.advertise<sensor_msgs::PointCloud2>("octomap_point_cloud_centers", 1, latched_topics_);
 
   sub_point_cloud_ = new message_filters::Subscriber<sensor_msgs::PointCloud2>(nh_, "cloud_in", 5);
@@ -419,19 +422,22 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
     return;
   }
 
-  bool publish_marker_array = (latched_topics_ || pub_marker_.getNumSubscribers() > 0);
+  bool publish_marker_array = (latched_topics_ ||
+                               pub_occupied_fg_.getNumSubscribers() > 0 ||
+                               pub_occupied_bg_.getNumSubscribers() > 0);
   bool publish_free_marker_array = (latched_topics_ || pub_fmarker_.getNumSubscribers() > 0);
   bool publish_point_cloud = (latched_topics_ || pub_point_cloud_.getNumSubscribers() > 0);
 
-  // init markers for free space:
-  visualization_msgs::MarkerArray free_nodes_vis;
+  // init markers:
   // each array stores all cubes of a different size, one for each depth level:
+  visualization_msgs::MarkerArray free_nodes_vis;
   free_nodes_vis.markers.resize(tree_depth_+1);
 
-  // init markers:
-  visualization_msgs::MarkerArray occupied_nodes_vis;
-  // each array stores all cubes of a different size, one for each depth level:
-  occupied_nodes_vis.markers.resize(tree_depth_+1);
+  visualization_msgs::MarkerArray occupied_fg_vis;
+  occupied_fg_vis.markers.resize(tree_depth_+1);
+
+  visualization_msgs::MarkerArray occupied_bg_vis;
+  occupied_bg_vis.markers.resize(tree_depth_+1);
 
   // init pointcloud:
   pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud;
@@ -461,12 +467,12 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
         continue;
       } // else: current octree node is no speckle, send it out
 
-      // convert occupancy to color
+      // convert occupancy to color and get label
+      int label;
       std_msgs::ColorRGBA color;
       if (publish_marker_array || publish_point_cloud)
       {
         std::valarray<float> occupancy = (*it).getOccupancy();
-        int label;
         float max_probability = 0.0;
         for (int i=0; i < occupancy.size(); i++)
         {
@@ -487,15 +493,24 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
       if (publish_marker_array)
       {
         unsigned idx = it.getDepth();
-        assert(idx < occupied_nodes_vis.markers.size());
+        assert(idx < occupied_fg_vis.markers.size());
+        assert(idx < occupied_bg_vis.markers.size());
 
         geometry_msgs::Point cube_center;
         cube_center.x = x;
         cube_center.y = y;
         cube_center.z = z;
 
-        occupied_nodes_vis.markers[idx].points.push_back(cube_center);
-        occupied_nodes_vis.markers[idx].colors.push_back(color);
+        if (label == bg_label_)
+        {
+          occupied_bg_vis.markers[idx].points.push_back(cube_center);
+          occupied_bg_vis.markers[idx].colors.push_back(color);
+        }
+        else
+        {
+          occupied_fg_vis.markers[idx].points.push_back(cube_center);
+          occupied_fg_vis.markers[idx].colors.push_back(color);
+        }
       }
 
       // insert into pointcloud:
@@ -535,30 +550,55 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   // finish MarkerArray:
   if (publish_marker_array)
   {
-    for (unsigned i= 0; i < occupied_nodes_vis.markers.size(); ++i)
+    // foreground
+    for (unsigned i= 0; i < occupied_fg_vis.markers.size(); ++i)
     {
       double size = octree_->getNodeSize(i);
 
-      occupied_nodes_vis.markers[i].header.frame_id = world_frame_id_;
-      occupied_nodes_vis.markers[i].header.stamp = rostime;
-      occupied_nodes_vis.markers[i].ns = "map";
-      occupied_nodes_vis.markers[i].id = i;
-      occupied_nodes_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
-      occupied_nodes_vis.markers[i].scale.x = size;
-      occupied_nodes_vis.markers[i].scale.y = size;
-      occupied_nodes_vis.markers[i].scale.z = size;
+      occupied_fg_vis.markers[i].header.frame_id = world_frame_id_;
+      occupied_fg_vis.markers[i].header.stamp = rostime;
+      occupied_fg_vis.markers[i].ns = "map";
+      occupied_fg_vis.markers[i].id = i;
+      occupied_fg_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
+      occupied_fg_vis.markers[i].scale.x = size;
+      occupied_fg_vis.markers[i].scale.y = size;
+      occupied_fg_vis.markers[i].scale.z = size;
 
-      if (occupied_nodes_vis.markers[i].points.size() > 0)
+      if (occupied_fg_vis.markers[i].points.size() > 0)
       {
-        occupied_nodes_vis.markers[i].action = visualization_msgs::Marker::ADD;
+        occupied_fg_vis.markers[i].action = visualization_msgs::Marker::ADD;
       }
       else
       {
-        occupied_nodes_vis.markers[i].action = visualization_msgs::Marker::DELETE;
+        occupied_fg_vis.markers[i].action = visualization_msgs::Marker::DELETE;
       }
     }
+    pub_occupied_fg_.publish(occupied_fg_vis);
 
-    pub_marker_.publish(occupied_nodes_vis);
+    // background
+    for (unsigned i= 0; i < occupied_bg_vis.markers.size(); ++i)
+    {
+      double size = octree_->getNodeSize(i);
+
+      occupied_bg_vis.markers[i].header.frame_id = world_frame_id_;
+      occupied_bg_vis.markers[i].header.stamp = rostime;
+      occupied_bg_vis.markers[i].ns = "map";
+      occupied_bg_vis.markers[i].id = i;
+      occupied_bg_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
+      occupied_bg_vis.markers[i].scale.x = size;
+      occupied_bg_vis.markers[i].scale.y = size;
+      occupied_bg_vis.markers[i].scale.z = size;
+
+      if (occupied_bg_vis.markers[i].points.size() > 0)
+      {
+        occupied_bg_vis.markers[i].action = visualization_msgs::Marker::ADD;
+      }
+      else
+      {
+        occupied_bg_vis.markers[i].action = visualization_msgs::Marker::DELETE;
+      }
+    }
+    pub_occupied_bg_.publish(occupied_bg_vis);
   }
 
 
