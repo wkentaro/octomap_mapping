@@ -60,7 +60,6 @@ LabelOctomapServer::LabelOctomapServer() :
   octree_(NULL),
   max_range_(-1.0),
   world_frame_id_("/map"),
-  color_factor_(0.8),
   publish_rate_(0),
   latched_topics_(true),
   resolution_(0.05),
@@ -76,7 +75,6 @@ LabelOctomapServer::LabelOctomapServer() :
   init_config_(true)
 {
   pnh_.param("frame_id", world_frame_id_, world_frame_id_);
-  pnh_.param("color_factor", color_factor_, color_factor_);
 
   pnh_.param("occupancy_min_z", occupancy_min_z_, occupancy_min_z_);
   pnh_.param("occupancy_max_z", occupancy_max_z_, occupancy_max_z_);

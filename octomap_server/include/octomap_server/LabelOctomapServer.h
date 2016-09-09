@@ -166,7 +166,6 @@ protected:
   std::string world_frame_id_;  // the map frame
   std_msgs::ColorRGBA color_;
   std_msgs::ColorRGBA color_free_;
-  double color_factor_;
 
   bool latched_topics_;
   double publish_rate_;
