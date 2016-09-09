@@ -94,8 +94,6 @@ public:
 
   LabelOctomapServer();
   virtual ~LabelOctomapServer();
-  virtual bool octomapBinarySrv(OctomapSrv::Request  &req, OctomapSrv::GetOctomap::Response &res);
-  virtual bool octomapFullSrv(OctomapSrv::Request  &req, OctomapSrv::GetOctomap::Response &res);
   bool clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& resp);
   bool resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty::Response& resp);
 
@@ -133,8 +131,6 @@ protected:
 
   void periodicalPublishCallback(const ros::TimerEvent& event);
   void reconfigureCallback(octomap_server::OctomapServerConfig& config, uint32_t level);
-  void publishBinaryOctoMap(const ros::Time& rostime = ros::Time::now()) const;
-  void publishFullOctoMap(const ros::Time& rostime = ros::Time::now()) const;
   virtual void publishAll(const ros::Time& rostime = ros::Time::now());
 
   /**
@@ -154,20 +150,13 @@ protected:
     */
   bool isSpeckleNode(const octomap::OcTreeKey& key) const;
 
-  bool fullMapToMsg(const OcTreeT* octree, octomap_msgs::Octomap& msg) const;
-
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
   ros::Publisher pub_marker_;
-  ros::Publisher pub_binary_map_;
-  ros::Publisher pub_full_map_;
-  ros::Publisher pub_point_cloud_;
-  ros::Publisher pub_map_;
   ros::Publisher pub_fmarker_;
+  ros::Publisher pub_point_cloud_;
   message_filters::Subscriber<sensor_msgs::PointCloud2>* sub_point_cloud_;
   message_filters::Subscriber<sensor_msgs::Image>* sub_obj_proba_img_;
-  ros::ServiceServer srv_octomap_binary_;
-  ros::ServiceServer srv_octomap_full_;
   ros::ServiceServer srv_clear_bbx_;
   ros::ServiceServer srv_reset_;
   tf::TransformListener tf_listener_;

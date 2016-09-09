@@ -155,10 +155,8 @@ LabelOctomapServer::LabelOctomapServer() :
   }
 
   pub_marker_ = nh_.advertise<visualization_msgs::MarkerArray>("occupied_cells_vis_array", 1, latched_topics_);
-  pub_binary_map_ = nh_.advertise<octomap_msgs::Octomap>("octomap_binary", 1, latched_topics_);
-  pub_full_map_ = nh_.advertise<octomap_msgs::Octomap>("octomap_full", 1, latched_topics_);
-  pub_point_cloud_ = nh_.advertise<sensor_msgs::PointCloud2>("octomap_point_cloud_centers", 1, latched_topics_);
   pub_fmarker_ = nh_.advertise<visualization_msgs::MarkerArray>("free_cells_vis_array", 1, latched_topics_);
+  pub_point_cloud_ = nh_.advertise<sensor_msgs::PointCloud2>("octomap_point_cloud_centers", 1, latched_topics_);
 
   sub_point_cloud_ = new message_filters::Subscriber<sensor_msgs::PointCloud2>(nh_, "cloud_in", 5);
   sub_obj_proba_img_ = new message_filters::Subscriber<sensor_msgs::Image>(nh_, "proba_image_in", 5);
@@ -166,8 +164,6 @@ LabelOctomapServer::LabelOctomapServer() :
   async_->connectInput(*sub_point_cloud_, *sub_obj_proba_img_);
   async_->registerCallback(boost::bind(&LabelOctomapServer::insertCallback, this, _1, _2));
 
-  srv_octomap_binary_ = nh_.advertiseService("octomap_binary", &LabelOctomapServer::octomapBinarySrv, this);
-  srv_octomap_full_ = nh_.advertiseService("octomap_full", &LabelOctomapServer::octomapFullSrv, this);
   srv_clear_bbx_ = pnh_.advertiseService("clear_bbx", &LabelOctomapServer::clearBBXSrv, this);
   srv_reset_ = pnh_.advertiseService("reset", &LabelOctomapServer::resetSrv, this);
 
@@ -428,11 +424,9 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
     return;
   }
 
-  bool publish_free_marker_array = publish_free_space_ && (latched_topics_ || pub_fmarker_.getNumSubscribers() > 0);
   bool publish_marker_array = (latched_topics_ || pub_marker_.getNumSubscribers() > 0);
+  bool publish_free_marker_array = publish_free_space_ && (latched_topics_ || pub_fmarker_.getNumSubscribers() > 0);
   bool publish_point_cloud = (latched_topics_ || pub_point_cloud_.getNumSubscribers() > 0);
-  bool publish_binary_map = (latched_topics_ || pub_binary_map_.getNumSubscribers() > 0);
-  bool publish_full_map = (latched_topics_ || pub_full_map_.getNumSubscribers() > 0);
 
   // init markers for free space:
   visualization_msgs::MarkerArray free_nodes_vis;
@@ -592,47 +586,8 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
     pub_point_cloud_.publish(cloud);
   }
 
-  if (publish_binary_map)
-  {
-    publishBinaryOctoMap(rostime);
-  }
-
-  if (publish_full_map)
-  {
-    publishFullOctoMap(rostime);
-  }
-
   double total_elapsed = (ros::WallTime::now() - start_time).toSec();
   ROS_DEBUG("Map publishing in LabelOctomapServer took %f sec", total_elapsed);
-}
-
-bool LabelOctomapServer::octomapBinarySrv(OctomapSrv::Request  &req,
-    OctomapSrv::Response &res)
-{
-  ros::WallTime start_time = ros::WallTime::now();
-  ROS_INFO("Sending binary map data on service request");
-  res.map.header.frame_id = world_frame_id_;
-  res.map.header.stamp = ros::Time::now();
-  if (!octomap_msgs::binaryMapToMsg(*octree_, res.map))
-    return false;
-
-  double total_elapsed = (ros::WallTime::now() - start_time).toSec();
-  ROS_INFO("Binary octomap sent in %f sec", total_elapsed);
-  return true;
-}
-
-bool LabelOctomapServer::octomapFullSrv(OctomapSrv::Request  &req,
-    OctomapSrv::Response &res)
-{
-  ROS_INFO("Sending full map data on service request");
-  res.map.header.frame_id = world_frame_id_;
-  res.map.header.stamp = ros::Time::now();
-
-
-  if (!octomap_msgs::fullMapToMsg(*octree_, res.map))
-    return false;
-
-  return true;
 }
 
 bool LabelOctomapServer::clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& resp)
@@ -666,7 +621,6 @@ bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty
   ROS_INFO("Cleared octomap");
   publishAll(rostime);
 
-  publishBinaryOctoMap(rostime);
   for (unsigned i= 0; i < occupied_nodes_vis.markers.size(); ++i)
   {
     occupied_nodes_vis.markers[i].header.frame_id = world_frame_id_;
@@ -694,65 +648,6 @@ bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty
   pub_fmarker_.publish(free_nodes_vis);
 
   return true;
-}
-
-void LabelOctomapServer::publishBinaryOctoMap(const ros::Time& rostime) const
-{
-  octomap_msgs::Octomap map;
-  map.header.frame_id = world_frame_id_;
-  map.header.stamp = rostime;
-
-  if (octomap_msgs::binaryMapToMsg(*octree_, map))
-  {
-    pub_binary_map_.publish(map);
-  }
-  else
-  {
-    ROS_ERROR("Error serializing OctoMap");
-  }
-}
-
-bool LabelOctomapServer::fullMapToMsg(const OcTreeT* octree, octomap_msgs::Octomap& msg) const
-{
-  octomap::ColorOcTree* color_octree = new octomap::ColorOcTree(resolution_);
-  for (typename OcTreeT::iterator it=octree->begin(octree->getTreeDepth()), end=octree->end(); it != end; ++it)
-  {
-    octomap::OcTreeKey key = it.getKey();
-    std::valarray<float> occupancy = (*it).getOccupancy();
-    assert(occupancy.size() == n_label_);
-    int label;
-    float max_probability = 0.0;
-    for (int i=0; i < occupancy.size(); i++)
-    {
-      if (occupancy[i] > max_probability) {
-        max_probability = occupancy[i];
-        label = i;
-      }
-    }
-    color_octree->setNodeValue(key, octomap::logodds(max_probability));
-    cv::Vec3d rgb = cv_bridge::rgb_colors::getRGBColor(label);
-    color_octree->setNodeColor(key,
-                               static_cast<uint8_t>(rgb[0] * 255),
-                               static_cast<uint8_t>(rgb[1] * 255),
-                               static_cast<uint8_t>(rgb[2] * 255));
-  }
-  return octomap_msgs::fullMapToMsg(*color_octree, msg);
-}
-
-void LabelOctomapServer::publishFullOctoMap(const ros::Time& rostime) const
-{
-  octomap_msgs::Octomap map;
-  map.header.frame_id = world_frame_id_;
-  map.header.stamp = rostime;
-
-  if (fullMapToMsg(octree_, map))
-  {
-    pub_full_map_.publish(map);
-  }
-  else
-  {
-    ROS_ERROR("Error serializing OctoMap");
-  }
 }
 
 bool LabelOctomapServer::isSpeckleNode(const octomap::OcTreeKey& nKey) const
