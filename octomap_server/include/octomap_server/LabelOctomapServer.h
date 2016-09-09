@@ -120,63 +120,6 @@ protected:
     */
   bool isSpeckleNode(const octomap::OcTreeKey& key) const;
 
-  /// hook that is called before traversing all nodes
-  virtual void handlePreNodeTraversal(const ros::Time& rostime);
-
-  /// hook that is called when traversing all nodes of the updated Octree (does nothing here)
-  virtual void handleNode(const OcTreeT::iterator& it)
-  {
-  };
-
-  /// hook that is called when traversing all nodes of the updated Octree in the updated area (does nothing here)
-  virtual void handleNodeInBBX(const OcTreeT::iterator& it)
-  {
-  };
-
-  /// hook that is called when traversing occupied nodes of the updated Octree
-  virtual void handleOccupiedNode(const OcTreeT::iterator& it);
-
-  /// hook that is called when traversing occupied nodes in the updated area (updates 2D map projection here)
-  virtual void handleOccupiedNodeInBBX(const OcTreeT::iterator& it);
-
-  /// hook that is called when traversing free nodes of the updated Octree
-  virtual void handleFreeNode(const OcTreeT::iterator& it);
-
-  /// hook that is called when traversing free nodes in the updated area (updates 2D map projection here)
-  virtual void handleFreeNodeInBBX(const OcTreeT::iterator& it);
-
-  /// hook that is called after traversing all nodes
-  virtual void handlePostNodeTraversal(const ros::Time& rostime);
-
-  /// updates the downprojected 2D map as either occupied or free
-  virtual void update2DMap(const OcTreeT::iterator& it, bool occupied);
-
-  inline unsigned mapIdx(int i, int j) const
-  {
-    return gridmap_.info.width * j + i;
-  }
-
-  inline unsigned mapIdx(const octomap::OcTreeKey& key) const
-  {
-    return mapIdx((key[0] - padded_min_key_[0]) / multires_2d_scale_,
-                  (key[1] - padded_min_key_[1]) / multires_2d_scale_);
-  }
-
-  /**
-    * Adjust data of map due to a change in its info properties (origin or size,
-    * resolution needs to stay fixed). map already contains the new map info,
-    * but the data is stored according to old_map_info.
-    */
-  void adjustMapData(nav_msgs::OccupancyGrid& map, const nav_msgs::MapMetaData& old_map_info) const;
-
-  inline bool mapChanged(const nav_msgs::MapMetaData& old_map_info, const nav_msgs::MapMetaData& new_map_info)
-  {
-    return (old_map_info.height != new_map_info.height ||
-            old_map_info.width != new_map_info.width ||
-            old_map_info.origin.position.x != new_map_info.origin.position.x ||
-            old_map_info.origin.position.y != new_map_info.origin.position.y);
-  }
-
   bool fullMapToMsg(const OcTreeT* octree, octomap_msgs::Octomap& msg) const;
 
   ros::NodeHandle nh_;
@@ -230,15 +173,6 @@ protected:
   bool compress_map_;
 
   bool init_config_;
-
-  // downprojected 2D map:
-  bool incremental_update_;
-  nav_msgs::OccupancyGrid gridmap_;
-  bool publish_2d_map_;
-  octomap::OcTreeKey padded_min_key_;
-  unsigned multires_2d_scale_;
-  bool project_complete_map_;
-  bool use_colored_map_;
 };
 
 }  // namespace octomap_server

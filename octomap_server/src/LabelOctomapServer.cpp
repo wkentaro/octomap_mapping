@@ -74,7 +74,6 @@ LabelOctomapServer::LabelOctomapServer() :
   min_size_y_(0.0),
   filter_speckles_(false),
   compress_map_(true),
-  incremental_update_(false),
   init_config_(true)
 {
   pnh_.param("frame_id", world_frame_id_, world_frame_id_);
@@ -104,7 +103,6 @@ LabelOctomapServer::LabelOctomapServer() :
   pnh_.param("sensor_model/max_range", max_range_, max_range_);
 
   pnh_.param("compress_map", compress_map_, compress_map_);
-  pnh_.param("incremental_2D_projection", incremental_update_, incremental_update_);
 
   // initialize octomap object & params
   octree_ = new OcTreeT(resolution_, n_label_);
@@ -114,7 +112,6 @@ LabelOctomapServer::LabelOctomapServer() :
   octree_->setClampingThresMax(threshold_max);
   tree_depth_ = octree_->getTreeDepth();
   max_tree_depth_ = tree_depth_;
-  gridmap_.info.resolution = resolution_;
 
   double r, g, b, a;
   pnh_.param("color/r", r, 0.0);
@@ -161,7 +158,6 @@ LabelOctomapServer::LabelOctomapServer() :
   pub_binary_map_ = nh_.advertise<octomap_msgs::Octomap>("octomap_binary", 1, latched_topics_);
   pub_full_map_ = nh_.advertise<octomap_msgs::Octomap>("octomap_full", 1, latched_topics_);
   pub_point_cloud_ = nh_.advertise<sensor_msgs::PointCloud2>("octomap_point_cloud_centers", 1, latched_topics_);
-  pub_map_ = nh_.advertise<nav_msgs::OccupancyGrid>("projected_map", 5, latched_topics_);
   pub_fmarker_ = nh_.advertise<visualization_msgs::MarkerArray>("free_cells_vis_array", 1, latched_topics_);
 
   sub_point_cloud_ = new message_filters::Subscriber<sensor_msgs::PointCloud2>(nh_, "cloud_in", 5);
@@ -243,7 +239,6 @@ bool LabelOctomapServer::openFile(const std::string& filename)
   tree_depth_ = octree_->getTreeDepth();
   max_tree_depth_ = tree_depth_;
   resolution_ = octree_->getResolution();
-  gridmap_.info.resolution = resolution_;
   double min_x, min_y, min_z;
   double max_x, max_y, max_z;
   octree_->getMetricMin(min_x, min_y, min_z);
@@ -438,7 +433,6 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   bool publish_point_cloud = (latched_topics_ || pub_point_cloud_.getNumSubscribers() > 0);
   bool publish_binary_map = (latched_topics_ || pub_binary_map_.getNumSubscribers() > 0);
   bool publish_full_map = (latched_topics_ || pub_full_map_.getNumSubscribers() > 0);
-  publish_2d_map_ = (latched_topics_ || pub_map_.getNumSubscribers() > 0);
 
   // init markers for free space:
   visualization_msgs::MarkerArray free_nodes_vis;
@@ -457,22 +451,10 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   PCLPointCloud pcl_cloud;
   // pcl::PointCloud<PCLPoint> pcl_cloud;
 
-  // call pre-traversal hook:
-  handlePreNodeTraversal(rostime);
-
   // now, traverse all leafs in the tree:
   for (OcTreeT::iterator it = octree_->begin(max_tree_depth_), end = octree_->end();
        it != end; ++it)
   {
-    bool in_update_bbx = isInUpdateBBX(it);
-
-    // call general hook:
-    handleNode(it);
-    if (in_update_bbx)
-    {
-      handleNodeInBBX(it);
-    }
-
     if (octree_->isNodeOccupied(*it))
     {
       double z = it.getZ();
@@ -488,12 +470,6 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
           ROS_DEBUG("Ignoring single speckle at (%f, %f, %f)", x, y, z);
           continue;
         } // else: current octree node is no speckle, send it out
-
-        handleOccupiedNode(it);
-        if (in_update_bbx)
-        {
-          handleOccupiedNodeInBBX(it);
-        }
 
         // create marker
         if (publish_marker_array)
@@ -522,12 +498,6 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
       double z = it.getZ();
       if (z > occupancy_min_z_ && z < occupancy_max_z_)
       {
-        handleFreeNode(it);
-        if (in_update_bbx)
-        {
-          handleFreeNodeInBBX(it);
-        }
-
         if (publish_free_space_)
         {
           double x = it.getX();
@@ -550,9 +520,6 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
       }
     }
   }
-
-  // call post-traversal hook:
-  handlePostNodeTraversal(rostime);
 
   // finish MarkerArray:
   if (publish_marker_array)
@@ -695,13 +662,6 @@ bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty
   occupied_nodes_vis.markers.resize(tree_depth_ +1);
   ros::Time rostime = ros::Time::now();
   octree_->clear();
-  // clear 2D map:
-  gridmap_.data.clear();
-  gridmap_.info.height = 0.0;
-  gridmap_.info.width = 0.0;
-  gridmap_.info.resolution = 0.0;
-  gridmap_.info.origin.position.x = 0.0;
-  gridmap_.info.origin.position.y = 0.0;
 
   ROS_INFO("Cleared octomap");
   publishAll(rostime);
@@ -795,211 +755,6 @@ void LabelOctomapServer::publishFullOctoMap(const ros::Time& rostime) const
   }
 }
 
-void LabelOctomapServer::handlePreNodeTraversal(const ros::Time& rostime)
-{
-  if (publish_2d_map_)
-  {
-    // init projected 2D map:
-    gridmap_.header.frame_id = world_frame_id_;
-    gridmap_.header.stamp = rostime;
-    nav_msgs::MapMetaData old_map_info = gridmap_.info;
-
-    // TODO: move most of this stuff into c'tor and init map only once (adjust if size changes)
-    double min_x, min_y, min_z, max_x, max_y, max_z;
-    octree_->getMetricMin(min_x, min_y, min_z);
-    octree_->getMetricMax(max_x, max_y, max_z);
-
-    octomap::point3d min_point(min_x, min_y, min_z);
-    octomap::point3d max_point(max_x, max_y, max_z);
-    octomap::OcTreeKey min_key = octree_->coordToKey(min_point, max_tree_depth_);
-    octomap::OcTreeKey max_key = octree_->coordToKey(max_point, max_tree_depth_);
-
-    ROS_DEBUG("MinKey: %d %d %d / MaxKey: %d %d %d", min_key[0], min_key[1], min_key[2], max_key[0], max_key[1], max_key[2]);
-
-    // add padding if requested (= new min/max_points in x&y):
-    double half_padded_x = 0.5 * min_size_x_;
-    double half_padded_y = 0.5 * min_size_y_;
-    min_x = std::min(min_x, -half_padded_x);
-    max_x = std::max(max_x, half_padded_x);
-    min_y = std::min(min_y, -half_padded_y);
-    max_y = std::max(max_y, half_padded_y);
-    min_point = octomap::point3d(min_x, min_y, min_z);
-    max_point = octomap::point3d(max_x, max_y, max_z);
-
-    octomap::OcTreeKey padded_max_key;
-    if (!octree_->coordToKeyChecked(min_point, max_tree_depth_, padded_min_key_))
-    {
-      ROS_ERROR("Could not create padded min OcTree key at %f %f %f", min_point.x(), min_point.y(), min_point.z());
-      return;
-    }
-    if (!octree_->coordToKeyChecked(max_point, max_tree_depth_, padded_max_key))
-    {
-      ROS_ERROR("Could not create padded max OcTree key at %f %f %f", max_point.x(), max_point.y(), max_point.z());
-      return;
-    }
-
-    ROS_DEBUG("Padded MinKey: %d %d %d / padded MaxKey: %d %d %d",
-              padded_min_key_[0], padded_min_key_[1], padded_min_key_[2],
-              padded_max_key[0], padded_max_key[1], padded_max_key[2]);
-    assert(padded_max_key[0] >= max_key[0] && padded_max_key[1] >= max_key[1]);
-
-    multires_2d_scale_ = 1 << (tree_depth_ - max_tree_depth_);
-    gridmap_.info.width = (padded_max_key[0] - padded_min_key_[0])/multires_2d_scale_ +1;
-    gridmap_.info.height = (padded_max_key[1] - padded_min_key_[1])/multires_2d_scale_ +1;
-
-    int mapOriginX = min_key[0] - padded_min_key_[0];
-    int mapOriginY = min_key[1] - padded_min_key_[1];
-    assert(mapOriginX >= 0 && mapOriginY >= 0);
-
-    // might not exactly be min / max of octree:
-    octomap::point3d origin = octree_->keyToCoord(padded_min_key_, tree_depth_);
-    double gridRes = octree_->getNodeSize(max_tree_depth_);
-    project_complete_map_ = (!incremental_update_ || (std::abs(gridRes-gridmap_.info.resolution) > 1e-6));
-    gridmap_.info.resolution = gridRes;
-    gridmap_.info.origin.position.x = origin.x() - gridRes * 0.5;
-    gridmap_.info.origin.position.y = origin.y() - gridRes * 0.5;
-    if (max_tree_depth_ != tree_depth_)
-    {
-      gridmap_.info.origin.position.x -= resolution_ / 2.0;
-      gridmap_.info.origin.position.y -= resolution_ / 2.0;
-    }
-
-    // workaround for  multires. projection not working properly for inner nodes:
-    // force re-building complete map
-    if (max_tree_depth_ < tree_depth_)
-    {
-      project_complete_map_ = true;
-    }
-
-    if (project_complete_map_)
-    {
-      ROS_DEBUG("Rebuilding complete 2D map");
-      gridmap_.data.clear();
-      // init to unknown:
-      gridmap_.data.resize(gridmap_.info.width * gridmap_.info.height, -1);
-    }
-    else
-    {
-      if (mapChanged(old_map_info, gridmap_.info))
-      {
-        ROS_DEBUG("2D grid map size changed to %dx%d", gridmap_.info.width, gridmap_.info.height);
-        adjustMapData(gridmap_, old_map_info);
-      }
-      size_t map_update_bbx_min_x = std::max(0,
-          (static_cast<int>(update_bbx_min_[0]) - static_cast<int>(padded_min_key_[0]))
-          / static_cast<int>(multires_2d_scale_));
-      size_t map_update_bbx_min_y = std::max(0,
-          (static_cast<int>(update_bbx_min_[1]) - static_cast<int>(padded_min_key_[1]))
-          / static_cast<int>(multires_2d_scale_));
-      size_t map_update_bbx_max_x = std::min(static_cast<int>(gridmap_.info.width-1),
-          (static_cast<int>(update_bbx_max_[0]) - static_cast<int>(padded_min_key_[0]))
-          / static_cast<int>(multires_2d_scale_));
-      size_t map_update_bbx_max_y = std::min(static_cast<int>(gridmap_.info.height-1),
-          (static_cast<int>(update_bbx_max_[1]) - static_cast<int>(padded_min_key_[1]))
-          / static_cast<int>(multires_2d_scale_));
-
-      assert(map_update_bbx_max_x > map_update_bbx_min_x);
-      assert(map_update_bbx_max_y > map_update_bbx_min_y);
-
-      size_t num_cols = map_update_bbx_max_x - map_update_bbx_min_x + 1;
-
-      // test for max idx:
-      uint max_idx = gridmap_.info.width*map_update_bbx_max_y + map_update_bbx_max_x;
-      if (max_idx  >= gridmap_.data.size())
-      {
-        ROS_ERROR("BBX index not valid: %d (max index %zu for size %d x %d) update-BBX is: [%zu %zu]-[%zu %zu]",
-                  max_idx, gridmap_.data.size(), gridmap_.info.width, gridmap_.info.height,
-                  map_update_bbx_min_x, map_update_bbx_min_y, map_update_bbx_max_x, map_update_bbx_max_y);
-      }
-
-      // reset proj. 2D map in bounding box:
-      for (unsigned int j = map_update_bbx_min_y; j <= map_update_bbx_max_y; ++j)
-      {
-        std::fill_n(gridmap_.data.begin() + gridmap_.info.width*j+map_update_bbx_min_x, num_cols, -1);
-      }
-    }
-  }
-}
-
-void LabelOctomapServer::handlePostNodeTraversal(const ros::Time& rostime)
-{
-  if (publish_2d_map_)
-  {
-    pub_map_.publish(gridmap_);
-  }
-}
-
-void LabelOctomapServer::handleOccupiedNode(const OcTreeT::iterator& it)
-{
-  if (publish_2d_map_ && project_complete_map_)
-  {
-    update2DMap(it, true);
-  }
-}
-
-void LabelOctomapServer::handleFreeNode(const OcTreeT::iterator& it)
-{
-  if (publish_2d_map_ && project_complete_map_)
-  {
-    update2DMap(it, false);
-  }
-}
-
-void LabelOctomapServer::handleOccupiedNodeInBBX(const OcTreeT::iterator& it)
-{
-  if (publish_2d_map_ && !project_complete_map_)
-  {
-    update2DMap(it, true);
-  }
-}
-
-void LabelOctomapServer::handleFreeNodeInBBX(const OcTreeT::iterator& it)
-{
-  if (publish_2d_map_ && !project_complete_map_)
-  {
-    update2DMap(it, false);
-  }
-}
-
-void LabelOctomapServer::update2DMap(const OcTreeT::iterator& it, bool occupied)
-{
-  // update 2D map (occupied always overrides):
-
-  if (it.getDepth() == max_tree_depth_)
-  {
-    unsigned idx = mapIdx(it.getKey());
-    if (occupied)
-    {
-      gridmap_.data[mapIdx(it.getKey())] = 100;
-    }
-    else if (gridmap_.data[idx] == -1)
-    {
-      gridmap_.data[idx] = 0;
-    }
-  }
-  else
-  {
-    int intSize = 1 << (max_tree_depth_ - it.getDepth());
-    octomap::OcTreeKey min_key = it.getIndexKey();
-    for (int dx = 0; dx < intSize; dx++)
-    {
-      int i = (min_key[0] + dx - padded_min_key_[0]) / multires_2d_scale_;
-      for (int dy = 0; dy < intSize; dy++)
-      {
-        unsigned idx = mapIdx(i, (min_key[1] + dy - padded_min_key_[1]) / multires_2d_scale_);
-        if (occupied)
-        {
-          gridmap_.data[idx] = 100;
-        }
-        else if (gridmap_.data[idx] == -1)
-        {
-          gridmap_.data[idx] = 0;
-        }
-      }
-    }
-  }
-}
-
 bool LabelOctomapServer::isSpeckleNode(const octomap::OcTreeKey& nKey) const
 {
   octomap::OcTreeKey key;
@@ -1038,7 +793,6 @@ void LabelOctomapServer::reconfigureCallback(octomap_server::OctomapServerConfig
     occupancy_max_z_             = config.occupancy_max_z;
     filter_speckles_            = config.filter_speckles;
     compress_map_               = config.compress_map;
-    incremental_update_         = config.incremental_2D_projection;
 
     // Parameters with a namespace require an special treatment at the beginning, as dynamic reconfigure
     // will overwrite them because the server is not able to match parameters' names.
@@ -1090,49 +844,6 @@ void LabelOctomapServer::reconfigureCallback(octomap_server::OctomapServerConfig
     }
   }
   publishAll();
-}
-
-void LabelOctomapServer::adjustMapData(nav_msgs::OccupancyGrid& map, const nav_msgs::MapMetaData& old_map_info) const
-{
-  if (map.info.resolution != old_map_info.resolution)
-  {
-    ROS_ERROR("Resolution of map changed, cannot be adjusted");
-    return;
-  }
-
-  int i_off = static_cast<int>((old_map_info.origin.position.x - map.info.origin.position.x) / map.info.resolution + 0.5);
-  int j_off = static_cast<int>((old_map_info.origin.position.y - map.info.origin.position.y)/map.info.resolution + 0.5);
-
-  if (i_off < 0 || j_off < 0
-      || old_map_info.width  + i_off > map.info.width
-      || old_map_info.height + j_off > map.info.height)
-  {
-    ROS_ERROR("New 2D map does not contain old map area, this case is not implemented");
-    return;
-  }
-
-  nav_msgs::OccupancyGrid::_data_type old_map_data = map.data;
-
-  map.data.clear();
-  // init to unknown:
-  map.data.resize(map.info.width * map.info.height, -1);
-
-  nav_msgs::OccupancyGrid::_data_type::iterator from_start;
-  nav_msgs::OccupancyGrid::_data_type::iterator from_end;
-  nav_msgs::OccupancyGrid::_data_type::iterator to_start;
-
-  for (int j = 0; j < static_cast<int>(old_map_info.height); ++j)
-  {
-    // copy chunks, row by row:
-    from_start = old_map_data.begin() + j * old_map_info.width;
-    from_end = from_start + old_map_info.width;
-    to_start = map.data.begin() + ((j + j_off) * gridmap_.info.width + i_off);
-    copy(from_start, from_end, to_start);
-
-    //    for (int i =0; i < int(old_map_info.width); ++i){
-    //      map.data[gridmap_.info.width*(j+j_off) +i+i_off] = old_map_data[old_map_info.width*j +i];
-    //    }
-  }
 }
 
 }  // namespace octomap_server
