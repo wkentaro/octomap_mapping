@@ -507,9 +507,9 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
         point.x = x;
         point.y = y;
         point.z = z;
-        point.r = color.r;
-        point.g = color.g;
-        point.b = color.b;
+        point.r = static_cast<uint8_t>(color.r * 255);
+        point.g = static_cast<uint8_t>(color.g * 255);
+        point.b = static_cast<uint8_t>(color.b * 255);
         pcl_cloud.push_back(point);
       }
     }
