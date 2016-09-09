@@ -105,7 +105,7 @@ LabelOctomapServer::LabelOctomapServer() :
   pnh_.param("compress_map", compress_map_, compress_map_);
 
   // initialize octomap object & params
-  octree_ = new OcTreeT(resolution_, n_label_);
+  octree_ = new octomap::LabelOccupancyOcTree(resolution_, n_label_);
   octree_->setProbHit(prob_hit);
   octree_->setProbMiss(prob_miss);
   octree_->setClampingThresMin(threshold_min);
@@ -218,7 +218,7 @@ bool LabelOctomapServer::openFile(const std::string& filename)
       delete octree_;
       octree_ = NULL;
     }
-    octree_ = dynamic_cast<OcTreeT*>(tree);
+    octree_ = dynamic_cast<octomap::LabelOccupancyOcTree*>(tree);
     if (!octree_)
     {
       ROS_ERROR("Could not read OcTree in file, currently there are no other types supported in .ot");
@@ -442,7 +442,7 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud;
 
   // now, traverse all leafs in the tree:
-  for (OcTreeT::iterator it = octree_->begin(max_tree_depth_), end = octree_->end();
+  for (octomap::LabelOccupancyOcTree::iterator it = octree_->begin(max_tree_depth_), end = octree_->end();
        it != end; ++it)
   {
     double z = it.getZ();
@@ -612,14 +612,15 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   ROS_DEBUG("Map publishing in LabelOctomapServer took %f sec", total_elapsed);
 }
 
-bool LabelOctomapServer::clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& resp)
+bool LabelOctomapServer::clearBBXSrv(
+    octomap_msgs::BoundingBoxQuery::Request& req, octomap_msgs::BoundingBoxQuery::Response& res)
 {
   octomap::point3d min = octomap::pointMsgToOctomap(req.min);
   octomap::point3d max = octomap::pointMsgToOctomap(req.max);
 
   double threshold_min = octree_->getClampingThresMin();
   std::valarray<float> log_odds(octomap::logodds(threshold_min), n_label_);
-  for (OcTreeT::leaf_bbx_iterator it = octree_->begin_leafs_bbx(min, max),
+  for (octomap::LabelOccupancyOcTree::leaf_bbx_iterator it = octree_->begin_leafs_bbx(min, max),
       end = octree_->end_leafs_bbx(); it != end; ++it)
   {
     it->setLogOdds(log_odds);
@@ -633,7 +634,7 @@ bool LabelOctomapServer::clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& res
   return true;
 }
 
-bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty::Response& resp)
+bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res)
 {
   visualization_msgs::MarkerArray occupied_nodes_vis;
   occupied_nodes_vis.markers.resize(tree_depth_ +1);
@@ -684,7 +685,7 @@ bool LabelOctomapServer::isSpeckleNode(const octomap::OcTreeKey& nKey) const
       {
         if (key != nKey)
         {
-          OcTreeT::NodeType* node = octree_->search(key);
+          octomap::LabelOccupancyOcTree::NodeType* node = octree_->search(key);
           if (node && octree_->isNodeOccupied(node))
           {
             // we have a neighbor => break!

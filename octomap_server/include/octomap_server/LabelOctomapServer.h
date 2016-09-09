@@ -83,19 +83,13 @@ namespace octomap_server
 class LabelOctomapServer
 {
 public:
-  typedef pcl::PointXYZ PCLPoint;
-  typedef pcl::PointCloud<pcl::PointXYZ> PCLPointCloud;
-  typedef octomap::LabelOccupancyOcTree OcTreeT;
-
-  typedef octomap_msgs::GetOctomap OctomapSrv;
-  typedef octomap_msgs::BoundingBoxQuery BBXSrv;
-
-  typedef message_filters::sync_policies::ApproximateTime <sensor_msgs::PointCloud2, sensor_msgs::Image> ApproximateSyncPolicy;
+  typedef message_filters::sync_policies::ApproximateTime<
+    sensor_msgs::PointCloud2, sensor_msgs::Image> ApproximateSyncPolicy;
 
   LabelOctomapServer();
   virtual ~LabelOctomapServer();
-  bool clearBBXSrv(BBXSrv::Request& req, BBXSrv::Response& resp);
-  bool resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty::Response& resp);
+  bool clearBBXSrv(octomap_msgs::BoundingBoxQuery::Request& req, octomap_msgs::BoundingBoxQuery::Response& res);
+  bool resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res);
 
   virtual void insertCallback(const sensor_msgs::PointCloud2::ConstPtr& cloud, const sensor_msgs::Image::ConstPtr& imgmsg);
   virtual bool openFile(const std::string& filename);
@@ -118,7 +112,7 @@ protected:
   };
 
   /// Test if key is within update area of map (2D, ignores height)
-  inline bool isInUpdateBBX(const OcTreeT::iterator& it) const
+  inline bool isInUpdateBBX(const octomap::LabelOccupancyOcTree::iterator& it) const
   {
     // 2^(tree_depth-depth) voxels wide:
     unsigned voxel_width = (1 << (max_tree_depth_ - it.getDepth()));
@@ -163,7 +157,7 @@ protected:
   boost::recursive_mutex config_mutex_;
   dynamic_reconfigure::Server<OctomapServerConfig> reconfigure_server_;
 
-  OcTreeT* octree_;
+  octomap::LabelOccupancyOcTree* octree_;
   octomap::KeyRay key_ray_;  // temp storage for ray casting
   octomap::OcTreeKey update_bbx_min_;
   octomap::OcTreeKey update_bbx_max_;
