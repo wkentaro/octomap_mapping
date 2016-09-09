@@ -671,25 +671,37 @@ bool LabelOctomapServer::clearBBXSrv(
 
 bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res)
 {
-  visualization_msgs::MarkerArray occupied_nodes_vis;
-  occupied_nodes_vis.markers.resize(tree_depth_ +1);
+  visualization_msgs::MarkerArray occupied_fg_vis;
+  occupied_fg_vis.markers.resize(tree_depth_ +1);
+  visualization_msgs::MarkerArray occupied_bg_vis;
+  occupied_bg_vis.markers.resize(tree_depth_ +1);
   ros::Time rostime = ros::Time::now();
   octree_->clear();
 
   ROS_INFO("Cleared octomap");
   publishAll(rostime);
 
-  for (unsigned i= 0; i < occupied_nodes_vis.markers.size(); ++i)
+  for (unsigned i= 0; i < occupied_fg_vis.markers.size(); ++i)
   {
-    occupied_nodes_vis.markers[i].header.frame_id = world_frame_id_;
-    occupied_nodes_vis.markers[i].header.stamp = rostime;
-    occupied_nodes_vis.markers[i].ns = "map";
-    occupied_nodes_vis.markers[i].id = i;
-    occupied_nodes_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
-    occupied_nodes_vis.markers[i].action = visualization_msgs::Marker::DELETE;
+    occupied_fg_vis.markers[i].header.frame_id = world_frame_id_;
+    occupied_fg_vis.markers[i].header.stamp = rostime;
+    occupied_fg_vis.markers[i].ns = "map";
+    occupied_fg_vis.markers[i].id = i;
+    occupied_fg_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
+    occupied_fg_vis.markers[i].action = visualization_msgs::Marker::DELETE;
   }
+  pub_occupied_fg_.publish(occupied_fg_vis);
 
-  pub_marker_.publish(occupied_nodes_vis);
+  for (unsigned i= 0; i < occupied_bg_vis.markers.size(); ++i)
+  {
+    occupied_bg_vis.markers[i].header.frame_id = world_frame_id_;
+    occupied_bg_vis.markers[i].header.stamp = rostime;
+    occupied_bg_vis.markers[i].ns = "map";
+    occupied_bg_vis.markers[i].id = i;
+    occupied_bg_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
+    occupied_bg_vis.markers[i].action = visualization_msgs::Marker::DELETE;
+  }
+  pub_occupied_bg_.publish(occupied_bg_vis);
 
   visualization_msgs::MarkerArray free_nodes_vis;
   free_nodes_vis.markers.resize(tree_depth_ +1);
