@@ -177,8 +177,6 @@ protected:
             old_map_info.origin.position.y != new_map_info.origin.position.y);
   }
 
-  static std_msgs::ColorRGBA heightMapColor(double h);
-
   bool fullMapToMsg(const OcTreeT* octree, octomap_msgs::Octomap& msg) const;
 
   ros::NodeHandle nh_;
@@ -206,7 +204,6 @@ protected:
 
   double max_range_;
   std::string world_frame_id_;  // the map frame
-  bool use_height_map_;
   std_msgs::ColorRGBA color_;
   std_msgs::ColorRGBA color_free_;
   double color_factor_;

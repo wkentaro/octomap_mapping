@@ -60,7 +60,6 @@ LabelOctomapServer::LabelOctomapServer() :
   octree_(NULL),
   max_range_(-1.0),
   world_frame_id_("/map"),
-  // use_height_map_(true),
   color_factor_(0.8),
   publish_rate_(0),
   latched_topics_(true),
@@ -79,7 +78,6 @@ LabelOctomapServer::LabelOctomapServer() :
   init_config_(true)
 {
   pnh_.param("frame_id", world_frame_id_, world_frame_id_);
-  // pnh_.param("height_map", use_height_map_, use_height_map_);
   pnh_.param("color_factor", color_factor_, color_factor_);
 
   pnh_.param("occupancy_min_z", occupancy_min_z_, occupancy_min_z_);
@@ -509,17 +507,6 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
           cube_center.z = z;
 
           occupied_nodes_vis.markers[idx].points.push_back(cube_center);
-          /*
-          if (use_height_map_)
-          {
-            double min_x, min_y, min_z, max_x, max_y, max_z;
-            octree_->getMetricMin(min_x, min_y, min_z);
-            octree_->getMetricMax(max_x, max_y, max_z);
-
-            double h = (1.0 - std::min(std::max((cube_center.z-min_z)/ (max_z - min_z), 0.0), 1.0)) *color_factor_;
-            occupied_nodes_vis.markers[idx].colors.push_back(heightMapColor(h));
-          }
-          */
         }
 
         // insert into pointcloud:
@@ -1147,57 +1134,5 @@ void LabelOctomapServer::adjustMapData(nav_msgs::OccupancyGrid& map, const nav_m
     //    }
   }
 }
-
-/*
-std_msgs::ColorRGBA LabelOctomapServer::heightMapColor(double h)
-{
-  std_msgs::ColorRGBA color;
-  color.a = 1.0;
-  // blend over HSV-values (more colors)
-
-  double s = 1.0;
-  double v = 1.0;
-
-  h -= floor(h);
-  h *= 6;
-  int i;
-  double m, n, f;
-
-  i = floor(h);
-  f = h - i;
-  if (!(i & 1))
-    f = 1 - f; // if i is even
-  m = v * (1 - s);
-  n = v * (1 - s * f);
-
-  switch (i)
-  {
-  case 6:
-  case 0:
-    color.r = v; color.g = n; color.b = m;
-    break;
-  case 1:
-    color.r = n; color.g = v; color.b = m;
-    break;
-  case 2:
-    color.r = m; color.g = v; color.b = n;
-    break;
-  case 3:
-    color.r = m; color.g = n; color.b = v;
-    break;
-  case 4:
-    color.r = n; color.g = m; color.b = v;
-    break;
-  case 5:
-    color.r = v; color.g = m; color.b = n;
-    break;
-  default:
-    color.r = 1; color.g = 0.5; color.b = 0.5;
-    break;
-  }
-
-  return color;
-}
-*/
 
 }  // namespace octomap_server
