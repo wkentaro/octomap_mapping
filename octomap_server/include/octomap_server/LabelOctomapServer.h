@@ -150,6 +150,7 @@ protected:
   ros::Publisher pub_occupied_bg_;
   ros::Publisher pub_fmarker_;
   ros::Publisher pub_point_cloud_;
+  ros::Publisher pub_cluster_indices_;
   message_filters::Subscriber<sensor_msgs::PointCloud2>* sub_point_cloud_;
   message_filters::Subscriber<sensor_msgs::Image>* sub_obj_proba_img_;
   ros::ServiceServer srv_clear_bbx_;

@@ -37,6 +37,7 @@
 #include <string>
 
 #include <cv_bridge/rgb_colors.h>
+#include <jsk_recognition_msgs/ClusterPointIndices.h>
 
 #include <octomap_server/LabelOctomapServer.h>
 
@@ -155,6 +156,8 @@ LabelOctomapServer::LabelOctomapServer() :
   pub_occupied_bg_ = nh_.advertise<visualization_msgs::MarkerArray>("marker_array/occupied_bg", 1, latched_topics_);
   pub_fmarker_ = nh_.advertise<visualization_msgs::MarkerArray>("marker_array/free", 1, latched_topics_);
   pub_point_cloud_ = nh_.advertise<sensor_msgs::PointCloud2>("octomap_point_cloud_centers", 1, latched_topics_);
+  pub_cluster_indices_ = nh_.advertise<jsk_recognition_msgs::ClusterPointIndices>("cluster_indices", 1,
+                                                                                  latched_topics_);
 
   sub_point_cloud_ = new message_filters::Subscriber<sensor_msgs::PointCloud2>(nh_, "cloud_in", 5);
   sub_obj_proba_img_ = new message_filters::Subscriber<sensor_msgs::Image>(nh_, "proba_image_in", 5);
@@ -442,6 +445,16 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   // init pointcloud:
   pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud;
 
+  // init cluster point indices:
+  jsk_recognition_msgs::ClusterPointIndices cluster_indices_msg;
+  for (int i=0; i < n_label_; i++)
+  {
+    pcl_msgs::PointIndices indices_msg;
+    indices_msg.header.frame_id = world_frame_id_;
+    indices_msg.header.stamp = rostime;
+    cluster_indices_msg.cluster_indices.push_back(indices_msg);
+  }
+
   // now, traverse all leafs in the tree:
   for (octomap::LabelOccupancyOcTree::iterator it = octree_->begin(max_tree_depth_), end = octree_->end();
        it != end; ++it)
@@ -513,7 +526,7 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
         }
       }
 
-      // insert into pointcloud:
+      // insert into pointcloud and cluster indices:
       if (publish_point_cloud)
       {
         pcl::PointXYZRGB point = pcl::PointXYZRGB();
@@ -524,6 +537,9 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
         point.g = static_cast<uint8_t>(color.g * 255);
         point.b = static_cast<uint8_t>(color.b * 255);
         pcl_cloud.push_back(point);
+
+        int point_index = pcl_cloud.size() - 1;
+        cluster_indices_msg.cluster_indices[label].indices.push_back(point_index);
       }
     }
     else
@@ -632,7 +648,7 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
     pub_fmarker_.publish(free_nodes_vis);
   }
 
-  // finish pointcloud:
+  // finish pointcloud and cluster indices:
   if (publish_point_cloud)
   {
     sensor_msgs::PointCloud2 cloud;
@@ -641,6 +657,9 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
     cloud.header.stamp = rostime;
     cloud.is_dense = false;
     pub_point_cloud_.publish(cloud);
+
+    cluster_indices_msg.header = cloud.header;
+    pub_cluster_indices_.publish(cluster_indices_msg);
   }
 
   double total_elapsed = (ros::WallTime::now() - start_time).toSec();
