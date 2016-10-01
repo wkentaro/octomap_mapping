@@ -88,7 +88,10 @@ add_executable(octomap_tracking_server_node src/octomap_tracking_server_node.cpp
 target_link_libraries(octomap_tracking_server_node ${PROJECT_NAME} ${LINK_LIBS})
 
 # Nodelet
-add_library(octomap_server_nodelet src/octomap_server_nodelet.cpp)
+add_library(octomap_server_nodelet
+  src/octomap_server_nodelet.cpp
+  src/octomap_to_marker_array_nodelet.cpp
+)
 target_link_libraries(octomap_server_nodelet ${PROJECT_NAME} ${LINK_LIBS})
 
 # install targets:
