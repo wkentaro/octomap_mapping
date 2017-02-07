@@ -519,11 +519,12 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
           occupied_bg_vis.markers[idx].points.push_back(cube_center);
           occupied_bg_vis.markers[idx].colors.push_back(color);
         }
-        else
-        {
-          occupied_fg_vis.markers[idx].points.push_back(cube_center);
-          occupied_fg_vis.markers[idx].colors.push_back(color);
-        }
+
+        std::ostringstream ns;
+        ns << label;
+        occupied_fg_vis.markers[idx].ns = ns.str();
+        occupied_fg_vis.markers[idx].points.push_back(cube_center);
+        occupied_fg_vis.markers[idx].colors.push_back(color);
       }
 
       // insert into pointcloud and cluster indices:
