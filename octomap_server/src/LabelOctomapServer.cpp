@@ -437,7 +437,7 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
   free_nodes_vis.markers.resize(tree_depth_+1);
 
   visualization_msgs::MarkerArray occupied_fg_vis;
-  occupied_fg_vis.markers.resize(tree_depth_+1);
+  occupied_fg_vis.markers.resize(n_label_ * (tree_depth_+1));
 
   visualization_msgs::MarkerArray occupied_bg_vis;
   occupied_bg_vis.markers.resize(tree_depth_+1);
@@ -522,9 +522,9 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
 
         std::ostringstream ns;
         ns << label;
-        occupied_fg_vis.markers[idx].ns = ns.str();
-        occupied_fg_vis.markers[idx].points.push_back(cube_center);
-        occupied_fg_vis.markers[idx].colors.push_back(color);
+        occupied_fg_vis.markers[n_label_ * idx + label].ns = ns.str();
+        occupied_fg_vis.markers[n_label_ * idx + label].points.push_back(cube_center);
+        occupied_fg_vis.markers[n_label_ * idx + label].colors.push_back(color);
       }
 
       // insert into pointcloud and cluster indices:
@@ -570,24 +570,26 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
     // foreground
     for (unsigned i= 0; i < occupied_fg_vis.markers.size(); ++i)
     {
-      double size = octree_->getNodeSize(i);
+      unsigned idx = i / n_label_;
+      unsigned label = i % n_label_;
+      double size = octree_->getNodeSize(idx);
+      unsigned j = n_label_ * idx + label;
 
-      occupied_fg_vis.markers[i].header.frame_id = world_frame_id_;
-      occupied_fg_vis.markers[i].header.stamp = rostime;
-      occupied_fg_vis.markers[i].ns = "map";
-      occupied_fg_vis.markers[i].id = i;
-      occupied_fg_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
-      occupied_fg_vis.markers[i].scale.x = size;
-      occupied_fg_vis.markers[i].scale.y = size;
-      occupied_fg_vis.markers[i].scale.z = size;
+      occupied_fg_vis.markers[j].header.frame_id = world_frame_id_;
+      occupied_fg_vis.markers[j].header.stamp = rostime;
+      occupied_fg_vis.markers[j].id = j;
+      occupied_fg_vis.markers[j].type = visualization_msgs::Marker::CUBE_LIST;
+      occupied_fg_vis.markers[j].scale.x = size;
+      occupied_fg_vis.markers[j].scale.y = size;
+      occupied_fg_vis.markers[j].scale.z = size;
 
-      if (occupied_fg_vis.markers[i].points.size() > 0)
+      if (occupied_fg_vis.markers[j].points.size() > 0)
       {
-        occupied_fg_vis.markers[i].action = visualization_msgs::Marker::ADD;
+        occupied_fg_vis.markers[j].action = visualization_msgs::Marker::ADD;
       }
       else
       {
-        occupied_fg_vis.markers[i].action = visualization_msgs::Marker::DELETE;
+        occupied_fg_vis.markers[j].action = visualization_msgs::Marker::DELETE;
       }
     }
     pub_occupied_fg_.publish(occupied_fg_vis);
@@ -599,7 +601,6 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
 
       occupied_bg_vis.markers[i].header.frame_id = world_frame_id_;
       occupied_bg_vis.markers[i].header.stamp = rostime;
-      occupied_bg_vis.markers[i].ns = "map";
       occupied_bg_vis.markers[i].id = i;
       occupied_bg_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
       occupied_bg_vis.markers[i].scale.x = size;
@@ -628,7 +629,6 @@ void LabelOctomapServer::publishAll(const ros::Time& rostime)
 
       free_nodes_vis.markers[i].header.frame_id = world_frame_id_;
       free_nodes_vis.markers[i].header.stamp = rostime;
-      free_nodes_vis.markers[i].ns = "map";
       free_nodes_vis.markers[i].id = i;
       free_nodes_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
       free_nodes_vis.markers[i].scale.x = size;
@@ -705,7 +705,6 @@ bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty
   {
     occupied_fg_vis.markers[i].header.frame_id = world_frame_id_;
     occupied_fg_vis.markers[i].header.stamp = rostime;
-    occupied_fg_vis.markers[i].ns = "map";
     occupied_fg_vis.markers[i].id = i;
     occupied_fg_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
     occupied_fg_vis.markers[i].action = visualization_msgs::Marker::DELETE;
@@ -716,7 +715,6 @@ bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty
   {
     occupied_bg_vis.markers[i].header.frame_id = world_frame_id_;
     occupied_bg_vis.markers[i].header.stamp = rostime;
-    occupied_bg_vis.markers[i].ns = "map";
     occupied_bg_vis.markers[i].id = i;
     occupied_bg_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
     occupied_bg_vis.markers[i].action = visualization_msgs::Marker::DELETE;
@@ -730,7 +728,6 @@ bool LabelOctomapServer::resetSrv(std_srvs::Empty::Request& req, std_srvs::Empty
   {
     free_nodes_vis.markers[i].header.frame_id = world_frame_id_;
     free_nodes_vis.markers[i].header.stamp = rostime;
-    free_nodes_vis.markers[i].ns = "map";
     free_nodes_vis.markers[i].id = i;
     free_nodes_vis.markers[i].type = visualization_msgs::Marker::CUBE_LIST;
     free_nodes_vis.markers[i].action = visualization_msgs::Marker::DELETE;
