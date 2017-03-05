@@ -560,6 +560,14 @@ void LabelOctomapServer::insertScan(
     return;
   }
 
+  geometry_msgs::Twist twist;
+  tf_listener_.lookupTwist(cloud->header.frame_id, world_frame_id_, cloud->header.stamp, ros::Duration(1), twist);
+  double speed = std::sqrt(std::pow(twist.linear.x, 2) + std::pow(twist.linear.y, 2) + std::pow(twist.linear.z, 2));
+  if (speed > 0.01) {
+    ROS_WARN("Skipping cloud that has speed over 0.01: %lf [m/s]", speed);
+    return;
+  }
+
   // Get transform of sensor to the world
   tf::StampedTransform sensor_to_world_tf;
   try
